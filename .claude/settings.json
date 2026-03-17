@@ -1,0 +1,9 @@
+{
+  "enabledPlugins": {
+    "notion-workspace-plugin@notion-plugin-marketplace": true
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@packages/config",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/api.json": "./tsconfig/api.json",
+    "./tsconfig/mobile.json": "./tsconfig/mobile.json",
+    "./tsconfig/library.json": "./tsconfig/library.json"
+  },
+  "files": ["tsconfig"]
+}

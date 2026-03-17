@@ -1,38 +1,31 @@
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
+# Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# Build output
-out/
-build
-dist
-
-# Debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Turbo
-.turbo/
+# Test
+*.test
+*.out
+coverage/
 
 # Environment
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
 
 # Claude Code
 .claude/settings.local.json
 docs/superpowers/
 
-# Expo
-.expo/
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Testing
-coverage/
-
-# Misc
+# OS
 .DS_Store
 *.pem

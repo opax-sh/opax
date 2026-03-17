@@ -1,8 +1,8 @@
 # Opax — Git Data Spec
 
-**Version:** 1.0.0-draft
-**Date:** March 16, 2026
-**Companion to:** Opax PRD v4
+**Version:** 2.0.0-draft
+**Date:** March 17, 2026
+**Companion to:** Opax PRD v2.0.0
 
 ---
 
@@ -10,21 +10,20 @@
 
 This specification defines how Opax stores structured agent activity data as standard git objects. It is the foundation everything else builds on — the SDK implements it, plugins extend it, and third-party tools can read/write it directly without Opax's involvement.
 
-The spec uses five git primitives: orphan branches, commit trailers, git notes, custom refs, and annotated tags. All Opax data lives under the `oa/` namespace to avoid collision with user branches, refs, and tags.
+The spec uses five git primitives: orphan branches, commit trailers, git notes, custom refs, and annotated tags. All Opax data lives under the `opax/` namespace to avoid collision with user branches, refs, and tags.
 
 ---
 
 ## 1. Namespace Convention
 
 ```
-Orphan branches:    oa/{plugin}/{type}/{id}
-                    oa/core/index
+Orphan branch:      opax/data/v1
 
-Git notes:          refs/notes/oa-{namespace}
+Git notes:          refs/notes/opax-{namespace}
 
-Custom refs:        refs/oa/{purpose}
+Custom refs:        refs/opax/{purpose}
 
-Annotated tags:     oa/milestone/{description}
+Annotated tags:     opax/milestone/{description}
 
 Commit trailers:    OA-Session: {session-id}
                     OA-Agent: {agent-identifier}
@@ -33,7 +32,7 @@ Commit trailers:    OA-Session: {session-id}
                     OA-Duration: {seconds}
 ```
 
-The `oa/` prefix is configurable but defaults to `oa/`. All first-party plugins use `oa/{plugin-name}/` as their branch prefix. Third-party plugins register their own namespace under `oa/ext-{name}/`.
+The `opax/` prefix is configurable but defaults to `opax/`. All data is stored on the single `opax/data/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/data/v1/ext-{name}/`.
 
 ### ID Format
 
@@ -43,27 +42,70 @@ All record IDs use the pattern `{type_prefix}_{ULID}`. ULIDs are lexicographical
 |---|---|---|
 | Context artifact | `ctx_` | `ctx_01JQXYZ1234567890ABCDEF` |
 | Session archive | `ses_` | `ses_01JQXYZ1234567890ABCDEF` |
+| Checkpoint | `chk_` | `chk_01JQXYZ1234567890ABCDEF` |
 | Workflow instance | `wf_` | `wf_01JQXYZ1234567890ABCDEF` |
 | Action execution | `act_` | `act_01JQXYZ1234567890ABCDEF` |
 
 ---
 
-## 2. Orphan Branches
+## 2. Single Consolidated Orphan Branch
 
-Orphan branches are git branches with no common ancestor to the main codebase. They store structured data as files in commit trees without polluting the project's history. Each orphan branch is an independent data stream.
+All Opax data lives on a single orphan branch: `opax/data/v1`. This branch has no common ancestor with the main codebase. Records are organized in a sharded directory structure using the first two characters of the record ID.
 
-### 2.1 Memory Plugin: Context Artifacts
+### 2.1 Branch Structure
 
-**Branch:** `oa/memory/context/{id}`
+```
+opax/data/v1/
+├── contexts/
+│   ├── ct/
+│   │   └── ctx_01JQXYZ.../
+│   │       ├── metadata.json
+│   │       └── content.md
+│   └── ...
+├── sessions/
+│   ├── se/
+│   │   └── ses_01JQXYZ.../
+│   │       ├── metadata.json
+│   │       └── summary.md
+│   └── ...
+├── checkpoints/
+│   ├── ch/
+│   │   └── chk_01JQXYZ.../
+│   │       └── metadata.json
+│   └── ...
+├── workflows/
+│   ├── wf/
+│   │   └── wf_01JQXYZ.../
+│   │       ├── manifest.json
+│   │       ├── stages/
+│   │       └── events.jsonl
+│   └── ...
+└── actions/
+    ├── ac/
+    │   └── act_01JQXYZ.../
+    │       ├── metadata.json
+    │       └── artifacts/
+    └── ...
+```
+
+**Why single branch:** Per-record orphan branches don't scale (4,500+ branches/month for sessions alone). A single branch lets git share tree objects between commits, enables delta compression across full history, and avoids ref enumeration costs. Adopted from Entire.io's `entire/checkpoints/v1` pattern.
+
+**Sharding:** The first two characters of the record ID determine the shard directory. This prevents any single directory from accumulating too many entries, which would degrade git tree performance.
+
+**Write mechanics:** Adding a record uses git plumbing commands (`hash-object`, `mktree`, `commit-tree`, `update-ref`) or a git library. The working tree is never checked out. Writes are serialized via `.git/opax.lock`.
+
+**Read mechanics:** The SQLite index maps record IDs to `(commit, path)` tuples. Reads go through SQLite, not branch enumeration.
+
+### 2.2 Memory Plugin: Context Artifacts
+
+**Path:** `opax/data/v1/contexts/{shard}/{id}/`
 
 Cross-platform agent context: conversations, decisions, architecture notes, implementation plans, research, handover documents.
 
 ```
-oa/memory/context/ctx_01JQXYZ.../
+contexts/ct/ctx_01JQXYZ.../
 ├── metadata.json
-├── content.md
-└── related/
-    └── refs.json
+└── content.md
 ```
 
 **metadata.json:**
@@ -81,6 +123,7 @@ oa/memory/context/ctx_01JQXYZ.../
   },
   "tags": ["auth", "oauth", "architecture"],
   "related_paths": ["src/auth/**", "src/middleware/auth.ts"],
+  "content_hash": "sha256:a1b2c3d4...",
   "privacy": {
     "tier": "public | team | private",
     "scrubbed": true,
@@ -92,19 +135,19 @@ oa/memory/context/ctx_01JQXYZ.../
 }
 ```
 
-Context artifacts are append-only. Updates create new commits on the same orphan branch, preserving full history. The latest commit is the current version.
+The `content_hash` field references bulk content in content-addressed storage (see Section 8). When content is small enough to inline (< 4 KB), it may be stored directly as `content.md` on the branch instead.
 
-### 2.2 Memory Plugin: Session Archives
+Context artifacts are append-only. Updates create new commits on the branch, preserving full history.
 
-**Branch:** `oa/memory/sessions/{id}`
+### 2.3 Memory Plugin: Session Archives
+
+**Path:** `opax/data/v1/sessions/{shard}/{id}/`
 
 Complete records of agent sessions: what was asked, what the agent did, what code changed, how long it took.
 
 ```
-oa/memory/sessions/ses_01JQXYZ.../
+sessions/se/ses_01JQXYZ.../
 ├── metadata.json
-├── transcript.md
-├── diff.patch
 └── summary.md
 ```
 
@@ -125,6 +168,7 @@ oa/memory/sessions/ses_01JQXYZ.../
   "files_changed": 12,
   "lines_added": 340,
   "lines_removed": 45,
+  "content_hash": "sha256:e5f6g7h8...",
   "privacy": {
     "tier": "team",
     "scrubbed": true,
@@ -135,14 +179,43 @@ oa/memory/sessions/ses_01JQXYZ.../
 }
 ```
 
-### 2.3 Workflows Plugin: Execution Logs
+Bulk content (transcript, diff) is stored in content-addressed storage, referenced by `content_hash`. The `summary.md` stays on the branch (small, useful for quick inspection).
 
-**Branch:** `oa/workflows/{workflow-name}/{instance-id}`
+### 2.4 Checkpoints (Commit-Anchored)
+
+**Path:** `opax/data/v1/checkpoints/{shard}/{id}/`
+
+Checkpoints anchor session data to specific commits. The primary question is "what context produced this commit?" — checkpoints are created on commit.
+
+```
+checkpoints/ch/chk_01JQXYZ.../
+└── metadata.json
+```
+
+**metadata.json:**
+
+```json
+{
+  "id": "chk_01JQXYZ...",
+  "version": 1,
+  "commit": "abc1234def5678...",
+  "session_id": "ses_01JQXYZ...",
+  "agent": "claude-code",
+  "branch": "feature/auth-implementation",
+  "created_at": "2026-03-13T11:15:00Z",
+  "files_in_commit": ["src/auth/pkce.ts", "src/auth/oauth.ts"],
+  "content_hash": "sha256:i9j0k1l2..."
+}
+```
+
+### 2.5 Workflows Plugin: Execution Logs
+
+**Path:** `opax/data/v1/workflows/{shard}/{id}/`
 
 Execution history of a workflow instance: which stages ran, in what order, what triggered them, outcomes.
 
 ```
-oa/workflows/feature-development/wf_01JQXYZ.../
+workflows/wf/wf_01JQXYZ.../
 ├── manifest.json
 ├── stages/
 │   ├── implement.json
@@ -182,33 +255,20 @@ oa/workflows/feature-development/wf_01JQXYZ.../
 }
 ```
 
-### 2.4 Action Execution Logs
+### 2.6 Action Execution Logs
 
-**Branch:** `oa/actions/{execution-id}`
+**Path:** `opax/data/v1/actions/{shard}/{id}/`
 
 Logs from sandboxed action executions (tests, lints, evals). A single workflow stage may trigger multiple action executions.
 
 ```
-oa/actions/act_01JQXYZ.../
+actions/ac/act_01JQXYZ.../
 ├── metadata.json
-├── stdout.log
-├── stderr.log
 └── artifacts/
     └── results.json
 ```
 
-### 2.5 Core Index
-
-**Branch:** `oa/core/index`
-
-A keyword search index over all Opax data. Stored as a single orphan branch. This is a portable fallback for tools reading git directly — the SDK's read path uses FTS5 via SQLite, not this index.
-
-```
-oa/core/index/
-└── index.json
-```
-
-The index is always rebuildable from the underlying branches.
+Bulk output (stdout, stderr) stored in content-addressed storage, referenced by `content_hash` in metadata.
 
 ---
 
@@ -220,23 +280,24 @@ Notes are annotations attached to existing commits without modifying the commit 
 
 | Namespace | Purpose | Typical Writer |
 |---|---|---|
-| `refs/notes/oa-sessions` | Links commits to session archives | post-commit hook |
-| `refs/notes/oa-reviews` | Code review assessments | Review workflow stage |
-| `refs/notes/oa-tests` | Test results | Test action / CI |
-| `refs/notes/oa-evals` | Eval scores | Eval action |
-| `refs/notes/oa-gates` | Approval records | Workflow gate resolution |
-| `refs/notes/oa-ci` | General CI results | Lint/build actions |
+| `refs/notes/opax-sessions` | Links commits to session archives | post-commit hook / passive capture |
+| `refs/notes/opax-reviews` | Code review assessments | Review workflow stage |
+| `refs/notes/opax-tests` | Test results | Test action / CI |
+| `refs/notes/opax-evals` | Eval scores | Eval action |
+| `refs/notes/opax-gates` | Approval records | Workflow gate resolution |
+| `refs/notes/opax-ci` | General CI results | Lint/build actions |
 
 ### 3.2 Note Content Format
 
 All notes are JSON objects with a `version` field.
 
-**Session link note (`oa-sessions`):**
+**Session link note (`opax-sessions`):**
 
 ```json
 {
   "version": 1,
   "session_id": "ses_01JQXYZ...",
+  "checkpoint_id": "chk_01JQXYZ...",
   "agent": "claude-code",
   "stage": "feature-development/implement",
   "workflow_id": "wf_01JQXYZ...",
@@ -244,7 +305,7 @@ All notes are JSON objects with a `version` field.
 }
 ```
 
-**Review note (`oa-reviews`):**
+**Review note (`opax-reviews`):**
 
 ```json
 {
@@ -265,7 +326,7 @@ All notes are JSON objects with a `version` field.
 }
 ```
 
-**Test result note (`oa-tests`):**
+**Test result note (`opax-tests`):**
 
 ```json
 {
@@ -281,7 +342,7 @@ All notes are JSON objects with a `version` field.
 }
 ```
 
-**Eval note (`oa-evals`):**
+**Eval note (`opax-evals`):**
 
 ```json
 {
@@ -301,11 +362,11 @@ All notes are JSON objects with a `version` field.
 
 ### 3.3 Extension Namespaces
 
-The `oa-` prefix is reserved for first-party namespaces. Community/third-party namespaces use `oa-ext-{name}`. Third-party tools define their own schemas. The SDK provides generic read/write methods for any namespace.
+The `opax-` prefix is reserved for first-party namespaces. Community/third-party namespaces use `opax-ext-{name}`. Third-party tools define their own schemas. The SDK provides generic read/write methods for any namespace.
 
 ### 3.4 Notes Distribution
 
-`git push` does not push notes by default. The SDK configures push refspecs for `refs/notes/oa-*` during `opax init`. Auto-push notes to remote on commit is configurable but off by default — explicit `opax push` or `git push` with configured refspecs.
+`git push` does not push notes by default. The SDK configures push refspecs for `refs/notes/opax-*` during `opax init`. Auto-push notes to remote on commit is configurable but off by default — explicit `opax push` or `git push` with configured refspecs.
 
 ---
 
@@ -335,20 +396,20 @@ OA-Duration: 2700
 | `OA-Workflow` | Workflow instance ID | Groups commits across stages |
 | `OA-Duration` | Seconds (integer) | Time from session start to this commit |
 
-Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (default), the same metadata is stored as git notes via `refs/notes/oa-sessions`.
+Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (default), the same metadata is stored as git notes via `refs/notes/opax-sessions`.
 
 ---
 
 ## 5. Custom Refs
 
-Refs are lightweight pointers to git objects. Opax uses custom refs under `refs/oa/` for application state that needs to survive process restarts.
+Refs are lightweight pointers to git objects. Opax uses custom refs under `refs/opax/` for application state that needs to survive process restarts.
 
 | Ref | Points to | Purpose |
 |---|---|---|
-| `refs/oa/workflows/active` | Blob | JSON listing active workflow instances |
-| `refs/oa/config` | Blob | Repository-level Opax configuration |
+| `refs/opax/workflows/active` | Blob | JSON listing active workflow instances |
+| `refs/opax/config` | Blob | Repository-level Opax configuration |
 
-Updated atomically via `git update-ref`. Inspectable: `git show refs/oa/workflows/active`.
+Updated atomically via `git update-ref`. Inspectable: `git show refs/opax/workflows/active`.
 
 ---
 
@@ -357,11 +418,11 @@ Updated atomically via `git update-ref`. Inspectable: `git show refs/oa/workflow
 Tags mark significant workflow milestones. Annotated tags store tagger, timestamp, and message — suitable for audit trails.
 
 ```
-oa/milestone/{workflow-name}/{description}
+opax/milestone/{workflow-name}/{description}
 ```
 
 ```bash
-git tag -a "oa/milestone/feature-development/auth-complete" \
+git tag -a "opax/milestone/feature-development/auth-complete" \
   -m '{"workflow": "wf_01JQXYZ...", "stage": "merge", "result": "success"}' \
   abc1234
 ```
@@ -378,7 +439,7 @@ The SQLite database at `.git/opax/opax.db` is a materialized view of all Opax gi
 
 ```sql
 -- Context artifacts
-CREATE TABLE oa_contexts (
+CREATE TABLE opax_contexts (
   id TEXT PRIMARY KEY,
   version INTEGER NOT NULL,
   type TEXT NOT NULL,
@@ -389,25 +450,27 @@ CREATE TABLE oa_contexts (
   source_model TEXT,
   tags TEXT,  -- JSON array, denormalized below
   related_paths TEXT,  -- JSON array
+  content_hash TEXT,  -- SHA-256 hash referencing CAS
   privacy_tier TEXT DEFAULT 'public',
   privacy_scrubbed BOOLEAN DEFAULT FALSE,
   privacy_encrypted BOOLEAN DEFAULT FALSE,
-  git_branch TEXT NOT NULL,
+  git_branch TEXT NOT NULL DEFAULT 'opax/data/v1',
   git_commit TEXT NOT NULL,
+  archive_location TEXT,  -- NULL = hot, remote URL = warm/cold
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
 -- Tag junction table for indexed lookups
-CREATE TABLE oa_context_tags (
-  context_id TEXT NOT NULL REFERENCES oa_contexts(id),
+CREATE TABLE opax_context_tags (
+  context_id TEXT NOT NULL REFERENCES opax_contexts(id),
   tag TEXT NOT NULL,
   PRIMARY KEY (context_id, tag)
 );
-CREATE INDEX idx_context_tags_tag ON oa_context_tags(tag);
+CREATE INDEX idx_context_tags_tag ON opax_context_tags(tag);
 
 -- Session archives
-CREATE TABLE oa_sessions (
+CREATE TABLE opax_sessions (
   id TEXT PRIMARY KEY,
   version INTEGER NOT NULL,
   agent TEXT NOT NULL,
@@ -422,39 +485,56 @@ CREATE TABLE oa_sessions (
   lines_added INTEGER,
   lines_removed INTEGER,
   tags TEXT,  -- JSON array
+  content_hash TEXT,  -- SHA-256 hash referencing CAS
   privacy_tier TEXT DEFAULT 'team',
-  git_branch TEXT NOT NULL,
-  git_commit TEXT NOT NULL
+  git_branch TEXT NOT NULL DEFAULT 'opax/data/v1',
+  git_commit TEXT NOT NULL,
+  archive_location TEXT  -- NULL = hot, remote URL = warm/cold
 );
 
-CREATE TABLE oa_session_tags (
-  session_id TEXT NOT NULL REFERENCES oa_sessions(id),
+CREATE TABLE opax_session_tags (
+  session_id TEXT NOT NULL REFERENCES opax_sessions(id),
   tag TEXT NOT NULL,
   PRIMARY KEY (session_id, tag)
 );
-CREATE INDEX idx_session_tags_tag ON oa_session_tags(tag);
+CREATE INDEX idx_session_tags_tag ON opax_session_tags(tag);
+
+-- Checkpoints (commit-anchored)
+CREATE TABLE opax_checkpoints (
+  id TEXT PRIMARY KEY,
+  version INTEGER NOT NULL,
+  commit_hash TEXT NOT NULL,
+  session_id TEXT REFERENCES opax_sessions(id),
+  agent TEXT,
+  branch TEXT,
+  content_hash TEXT,
+  git_commit TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_checkpoints_commit ON opax_checkpoints(commit_hash);
+CREATE INDEX idx_checkpoints_session ON opax_checkpoints(session_id);
 
 -- Git notes (all namespaces)
-CREATE TABLE oa_notes (
+CREATE TABLE opax_notes (
   commit_hash TEXT NOT NULL,
   namespace TEXT NOT NULL,
   content TEXT NOT NULL,  -- JSON
   created_at TEXT,
   PRIMARY KEY (commit_hash, namespace)
 );
-CREATE INDEX idx_notes_namespace ON oa_notes(namespace);
+CREATE INDEX idx_notes_namespace ON opax_notes(namespace);
 
 -- Typed views over notes
-CREATE VIEW oa_reviews AS
+CREATE VIEW opax_reviews AS
   SELECT commit_hash,
     json_extract(content, '$.reviewer') AS reviewer,
     json_extract(content, '$.verdict') AS verdict,
     json_extract(content, '$.summary') AS summary,
     json_extract(content, '$.reviewed_at') AS reviewed_at,
     content AS raw
-  FROM oa_notes WHERE namespace = 'oa-reviews';
+  FROM opax_notes WHERE namespace = 'opax-reviews';
 
-CREATE VIEW oa_test_results AS
+CREATE VIEW opax_test_results AS
   SELECT commit_hash,
     json_extract(content, '$.passed') AS passed,
     json_extract(content, '$.failed') AS failed,
@@ -463,29 +543,30 @@ CREATE VIEW oa_test_results AS
     json_extract(content, '$.framework') AS framework,
     json_extract(content, '$.ran_at') AS ran_at,
     content AS raw
-  FROM oa_notes WHERE namespace = 'oa-tests';
+  FROM opax_notes WHERE namespace = 'opax-tests';
 
-CREATE VIEW oa_eval_scores AS
+CREATE VIEW opax_eval_scores AS
   SELECT commit_hash,
     json_extract(content, '$.scores') AS scores,
     json_extract(content, '$.model') AS model,
     json_extract(content, '$.evaluated_at') AS evaluated_at,
     content AS raw
-  FROM oa_notes WHERE namespace = 'oa-evals';
+  FROM opax_notes WHERE namespace = 'opax-evals';
 
 -- Workflow instances
-CREATE TABLE oa_workflows (
+CREATE TABLE opax_workflows (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   status TEXT NOT NULL,  -- active | completed | failed | cancelled
   manifest TEXT,  -- JSON
-  git_branch TEXT NOT NULL,
+  git_branch TEXT NOT NULL DEFAULT 'opax/data/v1',
+  git_commit TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE oa_workflow_stages (
-  workflow_id TEXT NOT NULL REFERENCES oa_workflows(id),
+CREATE TABLE opax_workflow_stages (
+  workflow_id TEXT NOT NULL REFERENCES opax_workflows(id),
   name TEXT NOT NULL,
   status TEXT NOT NULL,
   trigger_event TEXT,
@@ -499,31 +580,31 @@ CREATE TABLE oa_workflow_stages (
 );
 
 -- FTS5 full-text search
-CREATE VIRTUAL TABLE oa_contexts_fts USING fts5(
+CREATE VIRTUAL TABLE opax_contexts_fts USING fts5(
   id, title, content, tags,
-  content=oa_contexts,
+  content=opax_contexts,
   content_rowid=rowid
 );
 
-CREATE VIRTUAL TABLE oa_sessions_fts USING fts5(
+CREATE VIRTUAL TABLE opax_sessions_fts USING fts5(
   id, agent, branch, tags,
-  content=oa_sessions,
+  content=opax_sessions,
   content_rowid=rowid
 );
 
 -- Triggers to keep FTS in sync
-CREATE TRIGGER oa_contexts_ai AFTER INSERT ON oa_contexts BEGIN
-  INSERT INTO oa_contexts_fts(rowid, id, title, content, tags)
+CREATE TRIGGER opax_contexts_ai AFTER INSERT ON opax_contexts BEGIN
+  INSERT INTO opax_contexts_fts(rowid, id, title, content, tags)
   VALUES (new.rowid, new.id, new.title, new.content, new.tags);
 END;
 
-CREATE TRIGGER oa_contexts_ad AFTER DELETE ON oa_contexts BEGIN
-  INSERT INTO oa_contexts_fts(oa_contexts_fts, rowid, id, title, content, tags)
+CREATE TRIGGER opax_contexts_ad AFTER DELETE ON opax_contexts BEGIN
+  INSERT INTO opax_contexts_fts(opax_contexts_fts, rowid, id, title, content, tags)
   VALUES ('delete', old.rowid, old.id, old.title, old.content, old.tags);
 END;
 
 -- Materializer state tracking
-CREATE TABLE oa_materializer_state (
+CREATE TABLE opax_materializer_state (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
@@ -539,7 +620,7 @@ Plugins extend the schema by implementing `initSchema()` in the `OpaxPlugin` int
 The SDK abstracts database dialect differences behind a `StorageAdapter` interface:
 
 - `initSchema()` — generates DDL for the configured backend (SQLite or Postgres)
-- `query()` — handles dialect differences (`json_extract` vs `->>`operators, FTS5 vs `tsvector`)
+- `query()` — handles dialect differences (`json_extract` vs `>>` operators, FTS5 vs `tsvector`)
 - `sync()` — incremental materialization from git to database
 - `rebuild()` — full rebuild from git
 
@@ -547,23 +628,81 @@ The local SDK always uses the SQLite adapter. The hosted control plane uses the 
 
 ### 7.4 Sync Behavior
 
-The `oa_materializer_state` table tracks a `git_head` value. When the SDK detects that HEAD has changed (e.g., after `git pull`), it runs an incremental sync to materialize new records. Current leaning: lazy sync (on first read after HEAD changes) with a stale-data indicator, not eager background sync.
+The `opax_materializer_state` table tracks a `git_head` value. When the SDK detects that HEAD has changed (e.g., after `git pull`), it runs an incremental sync to materialize new records. Current leaning: lazy sync (on first read after HEAD changes) with a stale-data indicator, not eager background sync.
 
 ---
 
-## 8. Storage Constraints
+## 8. Content-Addressed Storage (CAS)
+
+### Purpose
+
+Bulk content (transcripts, diffs, action logs) is stored outside of git in a content-addressed file store at `.git/opax/content/`. This dramatically reduces git repository size while preserving tamper-verification via hash comparison.
+
+### Layout
+
+```
+.git/opax/content/
+├── a1/
+│   ├── b2c3d4e5f6...   # SHA-256 hash (remaining chars)
+│   └── ...
+├── e5/
+│   └── f6g7h8i9j0...
+└── ...
+```
+
+Files are sharded by the first two characters of the SHA-256 hash, mirroring git's object storage layout.
+
+### Write Path
+
+1. Content is scrubbed by the privacy pipeline
+2. SHA-256 hash is computed over the scrubbed content
+3. Content is written to `.git/opax/content/{hash[0:2]}/{hash[2:]}`
+4. The hash is recorded in the metadata file on the `opax/data/v1` branch as `content_hash`
+
+### Read Path
+
+1. Query SQLite for the record → get `content_hash`
+2. Read `.git/opax/content/{hash[0:2]}/{hash[2:]}`
+3. Optionally verify integrity: `sha256sum` of file matches `content_hash`
+
+### Deduplication
+
+Content-addressing provides natural deduplication. If two sessions produce identical transcripts (unlikely but possible), only one copy is stored. More practically, this benefits context artifacts that may be saved multiple times.
+
+### What Goes Where
+
+| Content Type | Storage | Rationale |
+|---|---|---|
+| `metadata.json` | Git (on branch) | Small, structured, benefits from git delta compression |
+| `summary.md` | Git (on branch) | Small, useful for quick inspection via git tools |
+| `content.md` (< 4 KB) | Git (on branch) | Small enough to inline |
+| `content.md` (>= 4 KB) | CAS | Too large for efficient git storage |
+| `transcript.md` | CAS | Large, high-volume |
+| `diff.patch` | CAS | Large, high-volume |
+| `stdout.log` / `stderr.log` | CAS | Large, high-volume |
+
+### Distribution
+
+CAS files are local-only by default. For team sharing:
+- `opax push` can optionally bundle CAS files and push to a configured remote
+- The `content_hash` in git metadata enables verification after transfer
+- Hosted tier manages CAS distribution automatically
+
+---
+
+## 9. Storage Constraints
 
 Git was designed for source code, not a general-purpose data platform. The spec defines constraints to keep repositories healthy.
 
-**Data types:** Text and JSON only. No binaries on orphan branches. Reference binary artifacts by URL or path.
+**Data types:** Text and JSON only on the branch. No binaries. Bulk content goes to CAS. Reference binary artifacts by URL or path.
 
-**Size budget:** See *Storage & Scaling Spec* for detailed capacity math. The recommended soft cap is 2 GB of total Opax data per repository, with compaction and archive repos for larger volumes.
+**Size budget:** With the two-tier model, git footprint is ~2-5 MB/day for a 5-developer team (metadata only). CAS adds ~100 MB/day for bulk content but doesn't affect git operations. See *Storage & Scaling Spec* for detailed capacity math.
 
 **Network transfer:** Configure refspecs so `git fetch` only pulls code branches by default. Opax data fetched on demand. The SDK auto-configures this during `opax init`.
 
 ---
 
-## 9. Git Platform Compatibility
+## 10. Git Platform Compatibility
 
 | Platform | Orphan branches | Notes | Custom refs | Tags |
 |---|---|---|---|---|
@@ -575,7 +714,7 @@ The SDK includes `opax init --test-platform` which verifies remote platform comp
 
 ---
 
-## 10. MCP Tool Schemas
+## 11. MCP Tool Schemas
 
 The memory plugin exposes five MCP tools. Schemas below are the MCP `inputSchema` format.
 

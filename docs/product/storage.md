@@ -41,7 +41,7 @@ Bulk content does NOT benefit from git storage:
 |---|---|---|
 | metadata.json per session | ~2 KB | Structured JSON |
 | summary.md per session | ~10 KB | Auto-generated |
-| checkpoint metadata | ~1 KB | Commit anchor |
+| save metadata | ~1 KB | Commit anchor |
 | Git overhead per record | ~1 KB | Object headers, tree entries |
 | **Total per session** | **~14 KB** | Metadata only |
 
@@ -89,7 +89,7 @@ CAS data lives on the local filesystem and does not affect git operations (clone
 
 ### The Decision
 
-All Opax data lives on a single orphan branch: `opax/data/v1`. Records are organized in a sharded directory structure using the first two characters of the record ID. Adopted from Entire.io's `entire/checkpoints/v1` pattern.
+All Opax data lives on a single orphan branch: `opax/data/v1`. Records are organized in a sharded directory structure using the first two hex characters of `sha256(record_id)`, giving 256 uniformly distributed buckets. Adopted from Entire.io's `entire/checkpoints/v1` pattern. See `docs/misc/sharding-research.md` for benchmarks.
 
 ### Why Single Branch
 
@@ -354,7 +354,7 @@ Data Type        Count    Git Size    CAS Size    Oldest
 ─────────────── ─────── ─────────── ─────────── ──────────
 Context          234     2.3 MB      8.2 MB      2026-01-15
 Sessions         1,847   24.0 MB     489.2 MB    2026-01-15
-Checkpoints      1,847   1.8 MB      —           2026-01-15
+Saves      1,847   1.8 MB      —           2026-01-15
 Workflows        67      0.5 MB      6.4 MB      2026-02-01
 Actions          312     0.6 MB      156.7 MB    2026-02-01
 Notes            2,190   4.2 MB      —           2026-01-15

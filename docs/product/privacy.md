@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0-draft
 **Date:** March 16, 2026
-**Companion to:** Opax PRD v4
+**Companion to:** Opax PRD v2.0.0
 
 ---
 
@@ -194,12 +194,10 @@ privacy:
 Only content files are encrypted. Metadata remains plaintext to preserve git delta compression and enable filtered queries without decryption.
 
 ```
-oa/memory/context/ctx_01JQXYZ.../
-├── metadata.json         # PLAINTEXT — title, tags, timestamps, PrivacyMetadata
-├── content.md.age        # ENCRYPTED — actual content
-├── encryption.json       # recipient list, algorithm, encrypted-at timestamp
-└── related/
-    └── refs.json         # PLAINTEXT — just IDs
+opax/data/v1/sessions/{shard}/ses_01JQXYZ.../
+├── metadata.json         # PLAINTEXT — agent, tags, timestamps, PrivacyMetadata
+├── summary.md.age        # ENCRYPTED — session summary
+└── encryption.json       # recipient list, algorithm, encrypted-at timestamp
 ```
 
 **encryption.json:**

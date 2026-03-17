@@ -56,29 +56,29 @@ The core is deliberately thin. It owns data infrastructure; all domain logic liv
 2. **SDK** — A library providing typed read/write access to spec-conformant data, git hook event capture, plugin loading, and storage lifecycle management. Uses git plumbing commands or a git library for writes (never touches working tree). Reads via direct `.git/` object access or SQLite. Language: Go (go-git for git operations, modernc.org/sqlite for embedded database). Single-binary distribution with zero runtime dependencies. Concurrency via `.git/opax.lock` which serializes writes to the consolidated branch.
 3. **SQLite Materialized View** — A local database at `.git/opax/opax.db` derived from git state. Provides FTS5 full-text search, structured queries, and typed views over all Opax data. Always rebuildable from git via `opax db rebuild`. Zero-infrastructure — single file, no server, ships with the SDK. WAL mode for concurrent reads. See companion: *Storage Spec*.
 4. **Storage Lifecycle** — Two-tier storage model: metadata and references in git, bulk content (transcripts, diffs, action logs) in content-addressed storage referenced by hash. Tiered retention across hot (same repo) → warm (archive remote) → cold (git bundles on object storage). See companion: *Storage Spec*.
-5. **Passive Capture Engine** — Operates outside agent sessions, reading agent-native storage after the fact. Agent-specific plugins know where each agent stores transcripts and session data (e.g., Claude Code's JSONL files, Codex session logs). Hooks detect sessions on commit. This is the primary recording mechanism — zero agent cooperation required. MCP `persist_context` remains as a secondary capture path for web-only platforms.
+5. **Passive Capture Engine** — Operates outside agent sessions, reading agent-native storage after the fact. Agent-specific plugins know where each agent stores transcripts and session data (e.g., Claude Code's JSONL files, Codex session logs). Hooks detect sessions on commit. This is the primary recording mechanism — zero agent cooperation required. MCP server provides read-only query access for web-only platforms.
 6. **Privacy Pipeline** — Layered content processing: secret scrubbing (Phase 0) → encryption at rest (Phase 1). Scrubbing always precedes encryption — secrets are never stored even in encrypted form. `PrivacyMetadata` type on all artifacts from Phase 0 to enable Phase 1 without rearchitecting. See companion: *Privacy & Security Spec*.
 
 ### First-Party Plugins (open-source, replaceable)
 
-1. **Memory** — Cross-platform agent context persistence. Primary value: cross-platform context that flows between agent sessions. Passive capture records sessions automatically. CLI (`opax search`, `opax context`) is the primary query interface for agents with shell access. MCP server provides query access for web-only platforms (Claude web, ChatGPT).
+1. **Memory** — Agent session recording and search. Passive capture records sessions automatically. CLI (`opax search`, `opax session`) is the primary query interface for agents with shell access. MCP server provides read-only query access for web-only platforms (Claude web, ChatGPT).
 2. **Workflows** — Simple DAG-based stage sequencing with git-event triggers and human approval gates. YAML workflow format is owned by this plugin, not the core spec. This is a thin reference implementation, not a competing product. Teams that outgrow it should use Temporal or LangGraph with an Opax adapter. Can optionally fire-and-forget launch agents for stages, or just track state as external tools do the work.
 3. **Evals** — A thin note format and CLI for attaching eval scores to commits as git notes. Not an evaluation framework — teams needing serious eval infrastructure use Braintrust or Langfuse with an Opax adapter.
 4. **Executors** — Pluggable backends (local process, Docker, E2B, GitHub Actions) that run workflow stages in sandboxed environments. Used by the workflows plugin to dispatch work.
-5. **Adapters** — Bridges that normalize third-party tool data (LangGraph, Temporal, GitHub Actions, various agent platforms) into Opax's git format. Positions Opax as the Rosetta Stone for agent data: every tool that writes data in its own format can have an adapter that translates it into the Opax spec. Adapters are the highest-leverage investment after memory. Every adapter expands the ecosystem without building competing products. Design principle: if a first-party plugin feels like its own product, stop and build an adapter instead. Potential Entire.io adapter: consume Entire's checkpoint format and normalize into Opax's query surface, giving Entire users cross-tool unification and compliance without switching capture tooling.
+5. **Adapters** — Bridges that normalize third-party tool data (LangGraph, Temporal, GitHub Actions, various agent platforms) into Opax's git format. Positions Opax as the Rosetta Stone for agent data: every tool that writes data in its own format can have an adapter that translates it into the Opax spec. Adapters are the highest-leverage investment after memory. Every adapter expands the ecosystem without building competing products. Design principle: if a first-party plugin feels like its own product, stop and build an adapter instead. Potential Entire.io adapter: consume Entire's save format and normalize into Opax's query surface, giving Entire users cross-tool unification and compliance without switching capture tooling.
 
 ### Clients
 
-**CLI (`opax`)** — Primary interface for both humans AND agents with shell access (Claude Code, Codex, Aider, Goose). Agents learn about Opax via CLAUDE.md / project docs and query via `opax search`. Core provides base commands (`opax init`, `opax db`, `opax storage`); plugins register subcommands (`opax context`, `opax workflow`, `opax eval`).
+**CLI (`opax`)** — Primary interface for both humans AND agents with shell access (Claude Code, Codex, Aider, Goose). Agents learn about Opax via CLAUDE.md / project docs and query via `opax search`. Core provides base commands (`opax init`, `opax db`, `opax storage`); plugins register subcommands (`opax session`, `opax workflow`, `opax eval`).
 
-**MCP Server** — Secondary interface for agent platforms without shell access (Claude web, ChatGPT, mobile). Wraps the same SDK operations as the CLI. Five tools: save, search, list, get, handoff. Not the primary integration point — most agents use the CLI directly.
+**MCP Server** — Secondary interface for agent platforms without shell access (Claude web, ChatGPT, mobile). Wraps the same SDK operations as the CLI. Tools: search, list, get, handoff. Not the primary integration point — most agents use the CLI directly.
 
 **Studio** — Web UI for visualizing Opax data. Two deployment modes:
 
 - **Local (free)** – `opax studio` launches a temporary local server (like Supabase Studio or Drizzle Studio). Reads from local SQLite. No daemon — runs only when invoked.
 - **Hosted (paid) –** Always-on dashboard with Postgres backend, cross-repo views, notifications, cron triggers, team features. See *Commercial Model* below.
 
-Every first-party plugin ships with a Studio panel. Memory → context timeline and session browser. Workflows → DAG visualizer and gate approval UI. Evals → score dashboards and trend charts. Executors → execution log viewers. The more plugins you use, the richer Studio becomes.
+Every first-party plugin ships with a Studio panel. Memory → session timeline and browser. Workflows → DAG visualizer and gate approval UI. Evals → score dashboards and trend charts. Executors → execution log viewers. The more plugins you use, the richer Studio becomes.
 
 ### Plugin System
 
@@ -91,10 +91,10 @@ Plugins implement a common `OpaxPlugin` interface that provides: namespace regis
 - **Git as state –** Opax's defensible position is as a projection/query layer over git. Conflating this with orchestration or hosting risks building a GitHub competitor by accident.
 - **Fire-and-forget –** No daemon or watcher locally. All state advances reactively on user triggers, git hooks, external webhooks, or cron. Hooks fire asynchronously and return immediately, adding zero perceptible latency to git operations.
 - **Event sourcing –** Git serves as the write-ahead log and distribution mechanism. SQLite serves as the materialized view optimized for queries. The database is always derivable from git. `git clone` + `opax init` always works.
-- **Commit-anchored –** The primary question is "what context produced this commit?" not "what commits did this session produce?" Checkpoints are created on commit. Session data hangs off the checkpoint. This produces a natural audit trail — developers and auditors trace backward from code to context.
+- **Commit-anchored –** The primary question is "what context produced this commit?" not "what commits did this session produce?" Saves are created on commit. Session data hangs off the save. This produces a natural audit trail — developers and auditors trace backward from code to context.
 - **Passive capture first –** Agents should not need to actively cooperate with Opax. The system reads agent-native storage after the fact. MCP is a complement for platforms without shell access, not the primary integration.
 - **Scrubbing before encryption** – Secrets must never be stored even in encrypted form. The privacy pipeline order is non-negotiable.
-- **Layered metadata** – A single `OA-Session` trailer on each commit provides a tamper-proof link to the session archive. Detailed metadata lives in git notes, which are invisible by default and do not modify the commit hash. Teams that need stronger audit guarantees can enable signed commits on Opax data branches, pin archive hashes in trailers, or enforce branch protection rules on `opax/` refs. Opax provides the tooling for each layer. Teams choose what they need.
+- **Layered metadata** – A single `Opax-Session` trailer on each commit provides a tamper-proof link to the session archive. Detailed metadata lives in git notes, which are invisible by default and do not modify the commit hash. Teams that need stronger audit guarantees can enable signed commits on Opax data branches, pin archive hashes in trailers, or enforce branch protection rules on `opax/` refs. Opax provides the tooling for each layer. Teams choose what they need.
 - **Plugin ownership –** The workflows YAML format belongs to the plugin, not the spec. Keeps the core thin and the plugin replaceable. Same principle applies to eval criteria, adapter schemas, and executor configs.
 - **Open spec first –** The git data format is implementable by third-party tools without the Opax SDK. This is the key ecosystem and defensibility lever: network effects come from the spec, not the runtime.
 - **Phased infrastructure –** SQLite locally (zero friction), Postgres only at the web control plane where its strengths (JSONB/GIN indexes, `LISTEN`/`NOTIFY`, `pgvector`, concurrent writes) are warranted.
@@ -103,11 +103,11 @@ Plugins implement a common `OpaxPlugin` interface that provides: namespace regis
 
 ## Use Cases
 
-### Scenario 1: Cross-Platform Context (Passive Capture + CLI)
+### Scenario 1: Cross-Platform Session History (Passive Capture + CLI)
 
-Developer discusses auth architecture in Claude web → MCP `save` persists the conversation (web has no shell). Developer opens Claude Code → passive capture is already recording. Agent runs `opax search "auth architecture"` and retrieves the discussion. Developer opens Codex → same CLI query, same results. On `git push`, checkpoint metadata is shared with teammates.
+Developer uses Claude Code to implement auth → passive capture records the session on commit. Developer switches to Codex for a follow-up task → `opax search "auth architecture"` retrieves the previous session's summary and metadata. Another teammate on the same repo gets the same results. On `git push`, session metadata is shared with the team.
 
-No manual handoff documents and no copy-paste. Context is stored as git objects in the same repository the code lives in.
+No manual handoff documents and no copy-paste. Session history is stored as git objects in the same repository the code lives in.
 
 ### Scenario 2: Agent → Agent (Workflow Sequencing)
 
@@ -117,7 +117,7 @@ Opax advances state reactively. The workflow state machine only moves forward wh
 
 ### Scenario 3: Agent → Human (Audit & Compliance)
 
-Every agent-produced commit is annotated with structured metadata via git notes and an `OA-Session` trailer: which agent produced it, which workflow stage, how long the session took. Passive capture ensures session recording without agent cooperation. Review assessments, test results, and eval scores are also notes. The complete provenance chain from initial prompt to production code is captured as immutable, cryptographically-linked git history.
+Every agent-produced commit is annotated with structured metadata via git notes and an `Opax-Session` trailer: which agent produced it, which workflow stage, how long the session took. Passive capture ensures session recording without agent cooperation. Review assessments, test results, and eval scores are also notes. The complete provenance chain from initial prompt to production code is captured as immutable, cryptographically-linked git history.
 
 For commits without any agent session (pure human coding), no session record exists — this is correct behavior since compliance concerns AI system logging, not all development.
 
@@ -137,11 +137,11 @@ No existing tool combines cross-platform agent memory, git-native audit trails, 
 
 **Vs. Braintrust/Langfuse:** These are production AI observability platforms for teams shipping AI products to end users. Opax operates at the development layer: agent sessions, not production API traces. Different scale and data model. Opax is the data layer beneath; observability platforms consume Opax data, not compete with it.
 
-**Vs. Entire.io:** Entire is a session recording and observability tool — it captures what agents did. Opax connects what agents know. Entire is write-only: agents cannot read previous sessions back. Opax is read-write: the CLI and MCP server provide a query path that enables agents to start warm with previous context. Entire has no compliance framing, no workflow orchestration, and no open data spec. Opax's passive capture learns from Entire's architecture (single consolidated branch, commit-anchored checkpoints, agent plugin protocol) while adding the coordination, compliance, and adapter ecosystem layers Entire structurally cannot provide.
+**Vs. Entire.io:** Entire is a session recording and observability tool — it captures what agents did. Opax connects what agents know. Entire is write-only: agents cannot read previous sessions back. Opax is read-write: the CLI and MCP server provide a query path that enables agents to start warm with previous context. Entire has no compliance framing, no workflow orchestration, and no open data spec. Opax's passive capture learns from Entire's architecture (single consolidated branch, commit-anchored saves, agent plugin protocol) while adding the coordination, compliance, and adapter ecosystem layers Entire structurally cannot provide.
 
 **Key differentiators:** Git as the data layer (inspectable, portable, distributed). Open specification (ecosystem API, not proprietary format). Compliance-ready by design (cryptographic integrity, immutable history). Provider-agnostic (works across Claude, Codex, ChatGPT, Gemini, OLLAMA, mobile).
 
-**Biggest threat:** GitHub Agentic Workflows + GitHub MCP Registry in the next 12 months. Mitigation: ship fast, establish the spec before vendors move. The open format creates switching costs: ecosystem tools built on the format persist even if vendors offer alternatives. Secondary threat: Entire.io adding a read path (MCP server or CLI query). Their checkpoint data contains full transcripts — there's no structural barrier to building search. The open spec and adapter ecosystem are the durable moat.
+**Biggest threat:** GitHub Agentic Workflows + GitHub MCP Registry in the next 12 months. Mitigation: ship fast, establish the spec before vendors move. The open format creates switching costs: ecosystem tools built on the format persist even if vendors offer alternatives. Secondary threat: Entire.io adding a read path (MCP server or CLI query). Their save data contains full transcripts — there's no structural barrier to building search. The open spec and adapter ecosystem are the durable moat.
 
 ---
 
@@ -179,20 +179,20 @@ The Postgres layer at the hosted tier uses a `StorageBackend` interface so the S
 
 ### Phase 0: Core SDK + Passive Capture + Memory Plugin + CLI
 
-Cross-platform agent context that flows between sessions. Passive capture + CLI search is the wedge.
+Agent session recording that works across platforms. Passive capture + CLI search is the wedge.
 
 **Deliverables:**
 
 - `opax` binary (Go) — single binary containing CLI, SDK, plugin system, passive capture, MCP server
 - Core: git data operations (go-git), SQLite materialization (modernc.org/sqlite), FTS5 search, plugin loading, privacy pipeline (scrubbing), content-addressed storage
-- Memory plugin (built-in): context and session storage, search, handoff
-- Passive capture: Claude Code hook integration + Codex session reader. Checkpoint creation on commit. Transcript normalization into common format.
-- CLI: `opax init`, `opax search`, `opax context list/get`, `opax db rebuild`, `opax storage stats`, `opax doctor`
+- Memory plugin (built-in): session recording, search, handoff
+- Passive capture: Claude Code hook integration + Codex session reader. Save creation on commit. Transcript normalization into common format.
+- CLI: `opax init`, `opax search`, `opax session list/get`, `opax db rebuild`, `opax storage stats`, `opax doctor`
 - MCP server (built-in, secondary): for web-only platforms (Claude web, ChatGPT)
 - Git Data Spec v1.0
 - Setup guides for Claude Code, Codex
 
-**Exit criteria:** Developer uses Claude Code with passive capture enabled. On commit, checkpoint is created with session metadata + transcript hash. Developer runs `opax search "auth"` and retrieves context. Another agent (Codex) in same repo runs same query, gets same results. Storage compaction runs. Secret scrubbing catches API keys.
+**Exit criteria:** Developer uses Claude Code with passive capture enabled. On commit, a save is created with session metadata + transcript hash. Developer runs `opax search "auth"` and retrieves relevant sessions. Another agent (Codex) in same repo runs same query, gets same results. Storage compaction runs. Secret scrubbing catches API keys.
 
 ### Phase 1: Workflows + Evals + Encryption + Basic Compliance
 
@@ -263,16 +263,16 @@ Accumulated architectural decisions from design conversations, in chronological 
 15. **Retention tensions.** PRD compaction (30d individual / 90d summary) conflicts with EU AI Act (system lifetime) and Colorado (3 years). Compliance mode overrides compaction settings. Addressed in *Storage & Scaling Spec* and *Compliance Framework*.
 16. **Competitive positioning.** Opax is the data layer beneath observability platforms (Braintrust, Langfuse), not a direct competitor. Ship the spec, make evals expressive enough for them to consume Opax data. Expand upward only after the spec wins.
 17. **Hook conflict strategy.** Wrapper script pattern: `opax init` installs thin wrapper hooks that back up pre-existing hooks (as `post-commit.pre-opax`), run the original first, then run Opax's hook async (fire-and-forget). For husky/lefthook users, Opax detects the hook manager and adds itself to the user's hook config. `opax init --no-hooks` skips installation entirely; session capture falls back to explicit MCP calls only.
-18. **No context deduplication.** Every artifact is distinct — different session, different model, different framing. No dedup logic, no similarity scoring. Store everything, return everything.
+18. **No session deduplication.** Every session is distinct — different agent, different model, different framing. No dedup logic, no similarity scoring. Store everything, return everything.
 19. **Local cross-repo queries via SQLite ATTACH DATABASE.** Each repo has its own SQLite database. Cross-repo queries possible locally via `ATTACH DATABASE` (open multiple repo databases simultaneously). Not a primary feature but available for power users. Formal cross-repo is hosted-tier (Postgres materializes across repos). For explicit cross-boundary transfer, use the `create_handover` tool.
 20. **Search interface forward-compatibility.** `SearchStrategy` interface abstracts the search backend. Phase 0 ships `FTS5Strategy` only. `SearchOptions` includes a `search_mode` field (`keyword | semantic | hybrid`, default `keyword`); `semantic` and `hybrid` reserved but unimplemented until Phase 3. Embedding model choice deferred — landscape too volatile.
 21. **Plugin discovery via conventions.** First-party plugins are built into the `opax` binary in Phase 0. Community plugins use `opax-plugin-`* naming. Discovery via search. No custom registry. If curation matters later, a lightweight JSON listing on `opax.dev` supplements without changing the install mechanism.
 22. **Lazy sync on first read.** `post-merge` hook sets a dirty flag (touch `.git/opax/dirty`) — zero-cost staleness signal. SDK checks the flag on read, syncs transparently if stale. Progress callback for large deltas. No background process, no manual step, no daemon.
 23. **Single consolidated orphan branch.** All Opax data lives on one branch (`opax/data/v1`) with sharded directory structure (first two chars of ID). Adopted from Entire.io's architecture. Git shares tree objects between commits, delta compression works across full history, ref enumeration stays fast. Phase 0 stores everything on this branch; bulk content migrates to CAS when scale demands it.
-24. **Passive capture as primary recording.** Hooks detect agent sessions and read transcripts from disk after the agent writes them (Entire.io pattern). Zero agent cooperation required. MCP `persist_context` is a secondary capture path for web-only platforms. CLI is the primary query interface for agents with shell access.
+24. **Passive capture as primary recording.** Hooks detect agent sessions and read transcripts from disk after the agent writes them (Entire.io pattern). Zero agent cooperation required. MCP server provides read-only session query access for web-only platforms. CLI is the primary query interface for agents with shell access.
 25. **Stealth is default.** `opax/`* branches aren't in the default refspec, push is explicit via `opax push`. No special stealth flag needed; the refspec design already achieves it.
 26. **Two-tier storage model.** Metadata and references in git (small, tied to git objects, benefits from integrity and distribution). Bulk content (transcripts, diffs, action logs) in content-addressed storage at `.git/opax/content/`, referenced by SHA-256 hash from git metadata. Content hash in metadata provides explicit tamper-verification via sha256sum comparison. Dramatically reduces git footprint (~2-5 MB/day vs ~100 MB/day for 5-dev team).
-27. **Commit-anchored data model.** Primary question: "what context produced this commit?" not "what commits did this session produce?" Checkpoints are created on commit. Session data hangs off the checkpoint. Adopted from Entire.io. More natural audit trail — developers and auditors trace backward from code to context.
+27. **Commit-anchored data model.** Primary question: "what context produced this commit?" not "what commits did this session produce?" Saves are created on commit. Session data hangs off the save. Adopted from Entire.io. More natural audit trail — developers and auditors trace backward from code to context.
 28. **Artifacts are not Opax's purview.** Opax records what happened during development (sessions, decisions, reviews), not the artifacts development produces. ADRs, architecture docs, etc. belong in docs/ folder, Notion, Jira, Linear. Session records capture that discussions happened and link to resulting artifacts.
 29. **Plugin strategy discipline.** Memory is the real product and deserves deep investment. Workflows, evals, executors are thin reference implementations. Adapters are the high-leverage investment after memory. If a first-party plugin feels like its own product, stop and build an adapter instead.
 30. **Archive tiers.** Hot (0-30d): same repo, consolidated branch, SQLite. Warm (30-90d): git remote (archive repo), fetch on demand. Cold (90+d): git bundles on object storage, download + fetch from bundle. Hosted: git alternates (shared object pool), Postgres query surface.

@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0-draft
 **Date:** March 16, 2026
-**Companion to:** Opax PRD v4
+**Companion to:** Opax PRD v2.0.0
 
 ---
 
@@ -131,7 +131,7 @@ The `reviewer.type` field is critical for Article 14 compliance — it distingui
 
 New git note namespace for compliance incidents:
 
-**Namespace:** `refs/notes/oa-incidents`
+**Namespace:** `refs/notes/opax-incidents`
 
 ```json
 {

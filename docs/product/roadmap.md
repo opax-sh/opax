@@ -67,7 +67,7 @@ E0: Foundation
 | E1.2 | Orphan branch mgmt       | Create `opax/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                               |
 | E1.3 | Write records to branch  | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build full tree from current tip + new subtree. Acquire .git/opax.lock. Fallback: shell out to git plumbing if go-git is too awkward |
 | E1.4 | Read records from branch | Navigate tree at branch tip to shard/id path, read blob contents                                                                                                                                                                               |
-| E1.5 | Git notes operations     | Write/read JSON notes under namespaces (refs/notes/opax-sessions, etc.), handle missing notes ref                                                                                                                                              |
+| E1.5 | Git notes operations     | Write/read JSON notes under namespaces (refs/opax/notes/sessions, etc.), handle missing notes ref                                                                                                                                              |
 | E1.6 | Commit trailer parsing   | Read Opax-Session, Opax-Agent trailers from commit messages (read-only in Phase 0)                                                                                                                                                                 |
 | E1.7 | Refspec configuration    | Generate refspec config for .git/config — push notes refs, exclude opax/v1 from default fetch                                                                                                                                             |
 
@@ -117,7 +117,7 @@ E0: Foundation
 | E4.1 | Write orchestrator    | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + PrivacyMetadata → serialize → write to orphan branch. All under .git/opax.lock |
 | E4.2 | Session archive write | sessions/{shard}/{id}/ with metadata.json + summary.md. Transcript → CAS (always large). Generate ses_ ULID                                                          |
 | E4.4 | save write      | saves/{shard}/{id}/ with metadata.json. Link to commit hash + session ID. Generate sav_ ULID                                                                   |
-| E4.5 | Notes on commit       | Attach session-link note to commit under refs/notes/opax-sessions after save creation                                                                          |
+| E4.5 | Notes on commit       | Attach session-link note to commit under refs/opax/notes/sessions after save creation                                                                          |
 
 
 ---

@@ -131,7 +131,7 @@ The `reviewer.type` field is critical for Article 14 compliance — it distingui
 
 New git note namespace for compliance incidents:
 
-**Namespace:** `refs/notes/opax-incidents`
+**Namespace:** `refs/opax/notes/incidents`
 
 ```json
 {

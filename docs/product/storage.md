@@ -303,7 +303,7 @@ The SDK configures refspecs during `opax init` to prevent Opax data from inflati
   fetch = +refs/heads/*:refs/remotes/origin/*
 
   # Opax data fetched on demand
-  fetch = +refs/notes/opax-*:refs/notes/opax-*
+  fetch = +refs/opax/*:refs/opax/*
 
   # Opax branch NOT fetched by default
   # Use: opax pull (fetches opax/v1)

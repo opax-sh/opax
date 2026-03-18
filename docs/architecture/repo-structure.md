@@ -94,7 +94,7 @@ A persistent `--json` flag is registered on the root command and inherited by al
 
 ### `internal/git` — Git Plumbing
 
-**Responsibility:** All git operations for the Opax data layer. Orphan branch management (`opax/v1`), git notes (read/write across `refs/notes/opax-*` namespaces), commit trailers, custom refs (`refs/opax/*`), and ref updates.
+**Responsibility:** All git operations for the Opax data layer. Orphan branch management (`opax/v1`), git notes (read/write across `refs/opax/notes/*` namespaces), commit trailers, custom refs (`refs/opax/*`), and ref updates.
 
 **Key dependencies:** `go-git` (plumbing-level git operations)
 

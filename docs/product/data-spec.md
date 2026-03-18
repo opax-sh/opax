@@ -19,7 +19,7 @@ The spec uses five git primitives: orphan branches, commit trailers, git notes, 
 ```
 Orphan branch:      opax/v1
 
-Git notes:          refs/notes/opax-{namespace}
+Git notes:          refs/opax/notes/{namespace}
 
 Custom refs:        refs/opax/{purpose}
 
@@ -36,10 +36,12 @@ The `opax/` prefix is configurable but defaults to `opax/`. All data is stored o
 
 All record IDs use the pattern `{type_prefix}_{ULID}`. ULIDs are lexicographically sortable and contain an embedded timestamp.
 
-| Type | Prefix | Example |
-|---|---|---|
+
+| Type            | Prefix | Example                       |
+| --------------- | ------ | ----------------------------- |
 | Session archive | `ses_` | `ses_01JQXYZ1234567890ABCDEF` |
-| Save | `sav_` | `sav_01JQXYZ1234567890ABCDEF` |
+| Save            | `sav_` | `sav_01JQXYZ1234567890ABCDEF` |
+
 
 Plugins define their own ID prefixes (e.g., `wrk_`, `act_`) and register them to avoid collisions.
 
@@ -68,9 +70,9 @@ opax/v1/
     └── ...
 ```
 
-**Why single branch:** Per-record orphan branches don't scale (4,500+ branches/month for sessions alone). A single branch lets git share tree objects between commits, enables delta compression across full history, and avoids ref enumeration costs. Adopted from Entire.io's `entire/saves/v1` pattern.
+**Why single branch:** Per-record orphan branches don't scale (4,500+ branches/month for sessions alone). A single branch lets git share tree objects between commits, enables delta compression across full history, and avoids ref enumeration costs.
 
-**Sharding:** The shard directory is the first two hex characters of `sha256(record_id)`. This gives 256 uniformly distributed buckets regardless of ID prefix or creation time, keeping append cost constant at ~60ms even at 100k+ records. Matches Entire.io's production pattern. See `docs/misc/sharding-research.md` for benchmarks.
+**Sharding:** The shard directory is the first two hex characters of `sha256(record_id)`. This gives 256 uniformly distributed buckets regardless of ID prefix or creation time, keeping append cost constant at ~60ms even at 100k+ records. See `docs/misc/sharding-research.md` for benchmarks.
 
 **Write mechanics:** Adding a record uses git plumbing commands (`hash-object`, `mktree`, `commit-tree`, `update-ref`) or a git library. The working tree is never checked out. Writes are serialized via `.git/opax.lock`.
 
@@ -155,21 +157,24 @@ saves/7f/sav_01JQXYZ.../
 
 ## 3. Git Notes
 
-Notes are annotations attached to existing commits without modifying the commit hash. Each namespace stores a different category of annotation. Notes are the **default mechanism** for attaching Opax metadata to commits (preferred over trailers).
+Notes are annotations attached to existing commits without modifying the commit hash. Each namespace stores a different category of annotation. Notes are used for metadata that arrives **after** the commit (test results, review verdicts, eval scores) — data that cannot be embedded as a trailer at commit time.
+
+**Important:** Notes are mutable. Anyone with push access to a notes ref can silently rewrite or delete notes. For commit-time metadata (session linkage, agent identity), use trailers instead — they are cryptographically bound to the commit hash and cannot be altered.
 
 ### 3.1 First-Party Namespaces
 
-| Namespace | Purpose | Typical Writer |
-|---|---|---|
-| `refs/notes/opax-sessions` | Links commits to session archives | post-commit hook / passive capture |
 
-Plugins register their own note namespaces (e.g., `opax-reviews`, `opax-tests`, `opax-evals`).
+| Namespace                  | Purpose                           | Typical Writer                     |
+| -------------------------- | --------------------------------- | ---------------------------------- |
+| `refs/opax/notes/sessions` | Session linkage (fallback when trailers disabled) | post-commit hook |
+
+Plugins register their own note namespaces under `refs/opax/notes/` (e.g., `refs/opax/notes/reviews`, `refs/opax/notes/tests`). Notes are the natural fit for plugin data since it arrives after the commit.
 
 ### 3.2 Note Content Format
 
 All notes are JSON objects with a `version` field.
 
-**Session link note (`opax-sessions`):**
+**Session link note (`opax-sessions`) — used when trailers are disabled:**
 
 ```json
 {
@@ -183,19 +188,19 @@ All notes are JSON objects with a `version` field.
 
 ### 3.3 Extension Namespaces
 
-The `opax-` prefix is reserved for first-party namespaces. Community/third-party namespaces use `opax-ext-{name}`. Third-party tools define their own schemas. The SDK provides generic read/write methods for any namespace.
+First-party namespaces live directly under `refs/opax/notes/`. Community/third-party namespaces use `refs/opax/notes/ext-{name}`. Third-party tools define their own schemas. The SDK provides generic read/write methods for any namespace.
 
 ### 3.4 Notes Distribution
 
-`git push` does not push notes by default. The SDK configures push refspecs for `refs/notes/opax-*` during `opax init`. Auto-push notes to remote on commit is configurable but off by default — explicit `opax push` or `git push` with configured refspecs.
+`git push` does not push notes by default. The SDK configures a single push refspec for `refs/opax/*` during `opax init`, which covers notes, config, and all plugin refs. Auto-push on commit is configurable but off by default — explicit `opax push` or `git push` with configured refspecs.
 
 ---
 
 ## 4. Commit Trailers
 
-Trailers are structured key-value pairs appended to commit messages. They are **opt-in** (not default) because they modify the commit hash, which risks developer backlash.
+Trailers are structured key-value pairs appended to commit messages. They are the **default mechanism** for linking commits to session archives. A `prepare-commit-msg` hook appends trailers before the commit is created, so they are part of the commit hash — immutable and tamper-evident.
 
-When enabled, a `prepare-commit-msg` hook appends trailers to commits made in Opax-managed worktrees.
+Trailers are added automatically by the post-install hook. Can be disabled via `opax init --no-trailers` for teams that object to modified commit messages.
 
 ```
 feat: implement OAuth2 PKCE flow
@@ -207,15 +212,17 @@ Opax-Agent: claude-code
 Opax-Duration: 2700
 ```
 
-| Trailer | Value | Purpose |
-|---|---|---|
-| `Opax-Session` | Session ID | Links commit to session archive |
-| `Opax-Agent` | Agent identifier | Which agent produced this commit |
+
+| Trailer         | Value             | Purpose                                |
+| --------------- | ----------------- | -------------------------------------- |
+| `Opax-Session`  | Session ID        | Links commit to session archive        |
+| `Opax-Agent`    | Agent identifier  | Which agent produced this commit       |
 | `Opax-Duration` | Seconds (integer) | Time from session start to this commit |
+
 
 Plugins may define additional trailers (e.g., `Opax-Stage`, `Opax-Workflow`).
 
-Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (default), the same metadata is stored as git notes via `refs/notes/opax-sessions`.
+Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (`--no-trailers`), session linkage falls back to git notes via `refs/opax/notes/sessions` — functional but mutable.
 
 ---
 
@@ -223,9 +230,11 @@ Trailers are queryable via `git log --format="%(trailers)"`. When trailers are d
 
 Refs are lightweight pointers to git objects. Opax uses custom refs under `refs/opax/` for application state that needs to survive process restarts.
 
-| Ref | Points to | Purpose |
-|---|---|---|
-| `refs/opax/config` | Blob | Repository-level Opax configuration |
+
+| Ref                | Points to | Purpose                             |
+| ------------------ | --------- | ----------------------------------- |
+| `refs/opax/config` | Blob      | Repository-level Opax configuration |
+
 
 Updated atomically via `git update-ref`. Plugins may register additional custom refs under `refs/opax/`.
 
@@ -327,7 +336,7 @@ CREATE TABLE opax_materializer_state (
 Plugins store data using two mechanisms the core already materializes:
 
 1. **Branch directories** — plugins write records under `opax/v1/ext-{name}/` using the same sharding convention. The core materializer walks these generically during rebuild.
-2. **Git notes** — plugins register their own note namespaces (e.g., `opax-reviews`, `opax-tests`). Notes are materialized into the generic `opax_notes` table.
+2. **Git notes** — plugins register their own note namespaces under `refs/opax/notes/` (e.g., `refs/opax/notes/reviews`, `refs/opax/notes/tests`). Notes are materialized into the generic `opax_notes` table.
 
 Plugins that need richer queries create **views** over `opax_notes` using `json_extract`, not new tables. This keeps the materializer simple — it doesn't need to understand plugin schemas — and preserves the "SQLite is a cache" invariant since `opax db rebuild` only needs to know about core tables.
 
@@ -338,7 +347,7 @@ CREATE VIEW opax_reviews AS
     json_extract(content, '$.reviewer') AS reviewer,
     json_extract(content, '$.verdict') AS verdict,
     json_extract(content, '$.summary') AS summary
-  FROM opax_notes WHERE namespace = 'opax-reviews';
+  FROM opax_notes WHERE namespace = 'reviews';
 ```
 
 ### 7.3 StorageAdapter Interface
@@ -397,16 +406,19 @@ Content-addressing provides natural deduplication. If two sessions produce ident
 
 ### What Goes Where
 
-| Content Type | Storage | Rationale |
-|---|---|---|
+
+| Content Type    | Storage         | Rationale                                              |
+| --------------- | --------------- | ------------------------------------------------------ |
 | `metadata.json` | Git (on branch) | Small, structured, benefits from git delta compression |
-| `summary.md` | Git (on branch) | Small, useful for quick inspection via git tools |
-| `transcript.md` | CAS | Large, high-volume |
-| `diff.patch` | CAS | Large, high-volume |
+| `summary.md`    | Git (on branch) | Small, useful for quick inspection via git tools       |
+| `transcript.md` | CAS             | Large, high-volume                                     |
+| `diff.patch`    | CAS             | Large, high-volume                                     |
+
 
 ### Distribution
 
 CAS files are local-only by default. For team sharing:
+
 - `opax push` can optionally bundle CAS files and push to a configured remote
 - The `content_hash` in git metadata enables verification after transfer
 - Hosted tier manages CAS distribution automatically
@@ -431,18 +443,20 @@ All record metadata includes a `version` field (integer, starting at 1). When th
 
 1. **New fields are always optional.** Existing records without the field remain valid. The materializer uses sensible defaults for missing fields.
 2. **The `version` field increments** when a record uses the new schema. Old and new versions coexist on the same branch.
-3. **`opax db rebuild` handles all known versions.** The materializer maps each version to the current SQLite schema during rebuild. This is the migration path — there are no separate migration scripts.
+3. `**opax db rebuild` handles all known versions.** The materializer maps each version to the current SQLite schema during rebuild. This is the migration path — there are no separate migration scripts.
 4. **Breaking changes require a new branch.** If a change cannot be handled by optional fields (e.g., fundamentally restructuring a record type), the branch namespace increments: `opax/data/v2`. The old branch is preserved for read-only access. This should be exceedingly rare.
 
 ---
 
 ## 11. Git Platform Compatibility
 
-| Platform | Orphan branches | Notes | Custom refs | Tags |
-|---|---|---|---|---|
-| GitHub | ✅ (soft limit ~10k) | ✅ (no web UI) | ✅ (some push rules may reject) | ✅ |
-| GitLab | ✅ | ✅ | ✅ | ✅ |
-| Bitbucket | ✅ | ✅ (limited) | ⚠️ (test required) | ✅ |
+
+| Platform  | Orphan branches     | Notes         | Custom refs                    | Tags |
+| --------- | ------------------- | ------------- | ------------------------------ | ---- |
+| GitHub    | ✅ (soft limit ~10k) | ✅ (no web UI) | ✅ (some push rules may reject) | ✅    |
+| GitLab    | ✅                   | ✅             | ✅                              | ✅    |
+| Bitbucket | ✅                   | ✅ (limited)   | ⚠️ (test required)             | ✅    |
+
 
 The SDK includes `opax init --test-platform` which verifies remote platform compatibility and configures push/fetch refspecs accordingly.
 
@@ -533,3 +547,4 @@ The memory plugin exposes MCP tools for querying session data. Schemas below are
   }
 }
 ```
+

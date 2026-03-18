@@ -1,13 +1,16 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/opax-sh/opax/internal/types"
+	"gopkg.in/yaml.v3"
 )
 
 // OpaxConfig is the top-level configuration for Opax.
@@ -230,4 +233,172 @@ func Default() *OpaxConfig {
 			Prefix:  "Opax-",
 		},
 	}
+}
+
+// rawConfig mirrors OpaxConfig but uses pointer fields to distinguish
+// "not set" from zero values during YAML decode.
+type rawConfig struct {
+	Privacy  *rawPrivacy  `yaml:"privacy"`
+	Storage  *rawStorage  `yaml:"storage"`
+	Capture  *rawCapture  `yaml:"capture"`
+	Trailers *rawTrailers `yaml:"trailers"`
+}
+
+type rawPrivacy struct {
+	Version      *int             `yaml:"version"`
+	Scrubbing    *rawScrubbing    `yaml:"scrubbing"`
+	DefaultTiers *rawDefaultTiers `yaml:"default_tiers"`
+}
+
+type rawScrubbing struct {
+	Mode             *types.ScrubMode `yaml:"mode"`
+	BuiltinDetectors []string         `yaml:"builtin_detectors"`
+	CustomPatterns   []PatternConfig  `yaml:"custom_patterns"`
+	SourceFiles      []string         `yaml:"source_files"`
+	Entropy          *rawEntropy      `yaml:"entropy"`
+	Allowlist        []string         `yaml:"allowlist"`
+}
+
+type rawEntropy struct {
+	Enabled   *bool    `yaml:"enabled"`
+	Threshold *float64 `yaml:"threshold"`
+	MinLength *int     `yaml:"min_length"`
+}
+
+type rawDefaultTiers struct {
+	Session  *types.PrivacyTier `yaml:"session"`
+	Workflow *types.PrivacyTier `yaml:"workflow"`
+	Action   *types.PrivacyTier `yaml:"action"`
+}
+
+type rawStorage struct {
+	Retention *rawRetention `yaml:"retention"`
+}
+
+type rawRetention struct {
+	Hot             *string `yaml:"hot"`
+	Warm            *string `yaml:"warm"`
+	ComplianceFloor *string `yaml:"compliance_floor"`
+}
+
+type rawCapture struct {
+	EnabledSources []string          `yaml:"enabled_sources"`
+	LastCapture    map[string]string `yaml:"last_capture"`
+}
+
+type rawTrailers struct {
+	Enabled *bool   `yaml:"enabled"`
+	Prefix  *string `yaml:"prefix"`
+}
+
+// decodeYAML parses YAML bytes with strict field checking.
+// filePath is used in error messages only.
+func decodeYAML(data []byte, filePath string) (*rawConfig, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	var raw rawConfig
+	if err := dec.Decode(&raw); err != nil {
+		if err == io.EOF {
+			return &rawConfig{}, nil
+		}
+		return nil, fmt.Errorf("config: %s: %w", filePath, err)
+	}
+	return &raw, nil
+}
+
+// mergeRaw merges a raw (pointer-based) YAML overlay over a concrete base.
+// This correctly handles zero-value overrides (e.g., enabled: false).
+func mergeRaw(base *OpaxConfig, raw *rawConfig) *OpaxConfig {
+	result := *base
+	if raw == nil {
+		return &result
+	}
+
+	if raw.Privacy != nil {
+		if raw.Privacy.Version != nil {
+			result.Privacy.Version = *raw.Privacy.Version
+		}
+		if raw.Privacy.Scrubbing != nil {
+			s := raw.Privacy.Scrubbing
+			if s.Mode != nil {
+				result.Privacy.Scrubbing.Mode = *s.Mode
+			}
+			if s.BuiltinDetectors != nil {
+				result.Privacy.Scrubbing.BuiltinDetectors = s.BuiltinDetectors
+			}
+			if s.CustomPatterns != nil {
+				result.Privacy.Scrubbing.CustomPatterns = s.CustomPatterns
+			}
+			if s.SourceFiles != nil {
+				result.Privacy.Scrubbing.SourceFiles = s.SourceFiles
+			}
+			if s.Entropy != nil {
+				if s.Entropy.Enabled != nil {
+					result.Privacy.Scrubbing.Entropy.Enabled = *s.Entropy.Enabled
+				}
+				if s.Entropy.Threshold != nil {
+					result.Privacy.Scrubbing.Entropy.Threshold = *s.Entropy.Threshold
+				}
+				if s.Entropy.MinLength != nil {
+					result.Privacy.Scrubbing.Entropy.MinLength = *s.Entropy.MinLength
+				}
+			}
+			if s.Allowlist != nil {
+				result.Privacy.Scrubbing.Allowlist = s.Allowlist
+			}
+		}
+		if raw.Privacy.DefaultTiers != nil {
+			dt := raw.Privacy.DefaultTiers
+			if dt.Session != nil {
+				result.Privacy.DefaultTiers.Session = *dt.Session
+			}
+			if dt.Workflow != nil {
+				result.Privacy.DefaultTiers.Workflow = *dt.Workflow
+			}
+			if dt.Action != nil {
+				result.Privacy.DefaultTiers.Action = *dt.Action
+			}
+		}
+	}
+
+	if raw.Storage != nil && raw.Storage.Retention != nil {
+		r := raw.Storage.Retention
+		if r.Hot != nil {
+			result.Storage.Retention.Hot = *r.Hot
+		}
+		if r.Warm != nil {
+			result.Storage.Retention.Warm = *r.Warm
+		}
+		if r.ComplianceFloor != nil {
+			result.Storage.Retention.ComplianceFloor = *r.ComplianceFloor
+		}
+	}
+
+	if raw.Capture != nil {
+		if raw.Capture.EnabledSources != nil {
+			result.Capture.EnabledSources = raw.Capture.EnabledSources
+		}
+		if raw.Capture.LastCapture != nil {
+			merged := make(map[string]string)
+			for k, v := range result.Capture.LastCapture {
+				merged[k] = v
+			}
+			for k, v := range raw.Capture.LastCapture {
+				merged[k] = v
+			}
+			result.Capture.LastCapture = merged
+		}
+	}
+
+	if raw.Trailers != nil {
+		if raw.Trailers.Enabled != nil {
+			result.Trailers.Enabled = *raw.Trailers.Enabled
+		}
+		if raw.Trailers.Prefix != nil {
+			result.Trailers.Prefix = *raw.Trailers.Prefix
+		}
+	}
+
+	return &result
 }

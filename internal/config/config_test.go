@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +143,217 @@ func TestParseDuration(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("ParseDuration(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    types.ScrubMode
+		wantErr bool
+	}{
+		{"redact", types.ScrubRedact, false},
+		{"reject", types.ScrubReject, false},
+		{"warn", types.ScrubWarn, false},
+		{"invalid", types.ScrubMode("nope"), true},
+		{"empty", types.ScrubMode(""), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Privacy.Scrubbing.Mode = tt.mode
+			err := config.Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() mode=%q error = %v, wantErr %v", tt.mode, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !strings.Contains(err.Error(), "scrubbing.mode") {
+				t.Errorf("error %q should mention scrubbing.mode", err)
+			}
+		})
+	}
+}
+
+func TestValidateTiers(t *testing.T) {
+	tests := []struct {
+		name    string
+		field   string
+		tier    types.PrivacyTier
+		wantErr bool
+	}{
+		{"session-public", "session", types.TierPublic, false},
+		{"session-team", "session", types.TierTeam, false},
+		{"session-private", "session", types.TierPrivate, false},
+		{"session-invalid", "session", types.PrivacyTier("nope"), true},
+		{"workflow-invalid", "workflow", types.PrivacyTier("nope"), true},
+		{"action-invalid", "action", types.PrivacyTier("nope"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			switch tt.field {
+			case "session":
+				cfg.Privacy.DefaultTiers.Session = tt.tier
+			case "workflow":
+				cfg.Privacy.DefaultTiers.Workflow = tt.tier
+			case "action":
+				cfg.Privacy.DefaultTiers.Action = tt.tier
+			}
+			err := config.Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() %s=%q error = %v, wantErr %v", tt.field, tt.tier, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !strings.Contains(err.Error(), "default_tiers."+tt.field) {
+				t.Errorf("error %q should mention default_tiers.%s", err, tt.field)
+			}
+		})
+	}
+}
+
+func TestValidateVersion(t *testing.T) {
+	cfg := config.Default()
+	cfg.Privacy.Version = 0
+	err := config.Validate(cfg)
+	if err == nil {
+		t.Error("Validate() version=0 should error")
+	}
+	if err != nil && !strings.Contains(err.Error(), "privacy.version") {
+		t.Errorf("error %q should mention privacy.version", err)
+	}
+}
+
+func TestValidateCustomPattern(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern config.PatternConfig
+		wantErr bool
+	}{
+		{
+			name:    "valid pattern",
+			pattern: config.PatternConfig{Name: "test", Pattern: `\d+`, Description: "digits"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid regex",
+			pattern: config.PatternConfig{Name: "bad", Pattern: `[invalid`, Description: "broken"},
+			wantErr: true,
+		},
+		{
+			name:    "empty name",
+			pattern: config.PatternConfig{Name: "", Pattern: `\d+`, Description: "digits"},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Privacy.Scrubbing.CustomPatterns = []config.PatternConfig{tt.pattern}
+			err := config.Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && tt.pattern.Name != "" && err != nil && !strings.Contains(err.Error(), tt.pattern.Name) {
+				t.Errorf("error %q should mention pattern name %q", err, tt.pattern.Name)
+			}
+		})
+	}
+}
+
+func TestValidateAllowlist(t *testing.T) {
+	tests := []struct {
+		name      string
+		allowlist []string
+		wantErr   bool
+	}{
+		{"literal strings", []string{"SAFE_TOKEN", "PUBLIC_KEY"}, false},
+		{"valid regex", []string{`SAFE_\w+`}, false},
+		{"invalid regex", []string{`[bad`}, true},
+		{"empty list", []string{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Privacy.Scrubbing.Allowlist = tt.allowlist
+			err := config.Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() allowlist=%v error = %v, wantErr %v", tt.allowlist, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !strings.Contains(err.Error(), "allowlist") {
+				t.Errorf("error %q should mention allowlist", err)
+			}
+		})
+	}
+}
+
+func TestValidateRetention(t *testing.T) {
+	tests := []struct {
+		name    string
+		hot     string
+		wantErr bool
+	}{
+		{"valid", "30d", false},
+		{"empty is ok", "", false},
+		{"invalid", "nope", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Storage.Retention.Hot = tt.hot
+			err := config.Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() hot=%q error = %v, wantErr %v", tt.hot, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateTrailerPrefix(t *testing.T) {
+	tests := []struct {
+		name    string
+		prefix  string
+		wantErr bool
+	}{
+		{"valid", "Opax-", false},
+		{"empty is ok", "", false},
+		{"no trailing dash", "NoTrailingDash", true},
+		{"custom valid", "My-", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Trailers.Prefix = tt.prefix
+			err := config.Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() prefix=%q error = %v, wantErr %v", tt.prefix, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateEntropy(t *testing.T) {
+	tests := []struct {
+		name      string
+		enabled   bool
+		threshold float64
+		minLength int
+		wantErr   bool
+	}{
+		{"enabled valid", true, 4.5, 20, false},
+		{"disabled zero values ok", false, 0, 0, false},
+		{"enabled zero threshold", true, 0, 20, true},
+		{"enabled negative threshold", true, -1.0, 20, true},
+		{"enabled zero min_length", true, 4.5, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Privacy.Scrubbing.Entropy.Enabled = tt.enabled
+			cfg.Privacy.Scrubbing.Entropy.Threshold = tt.threshold
+			cfg.Privacy.Scrubbing.Entropy.MinLength = tt.minLength
+			err := config.Validate(cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/opax-sh/opax/internal/types"
@@ -113,6 +115,72 @@ func ParseDuration(s string) (time.Duration, error) {
 	}
 
 	return time.Duration(n) * multiplier, nil
+}
+
+// Validate checks an OpaxConfig for invalid values.
+// Returns the first error found.
+func Validate(cfg *OpaxConfig) error {
+	if cfg.Privacy.Version <= 0 {
+		return fmt.Errorf("config: validate: privacy.version: must be > 0")
+	}
+
+	if !cfg.Privacy.Scrubbing.Mode.Valid() {
+		return fmt.Errorf("config: validate: scrubbing.mode: invalid value %q", cfg.Privacy.Scrubbing.Mode)
+	}
+
+	if !cfg.Privacy.DefaultTiers.Session.Valid() {
+		return fmt.Errorf("config: validate: default_tiers.session: invalid value %q", cfg.Privacy.DefaultTiers.Session)
+	}
+	if !cfg.Privacy.DefaultTiers.Workflow.Valid() {
+		return fmt.Errorf("config: validate: default_tiers.workflow: invalid value %q", cfg.Privacy.DefaultTiers.Workflow)
+	}
+	if !cfg.Privacy.DefaultTiers.Action.Valid() {
+		return fmt.Errorf("config: validate: default_tiers.action: invalid value %q", cfg.Privacy.DefaultTiers.Action)
+	}
+
+	for _, p := range cfg.Privacy.Scrubbing.CustomPatterns {
+		if p.Name == "" {
+			return fmt.Errorf("config: validate: custom_patterns: pattern name must be non-empty")
+		}
+		if _, err := regexp.Compile(p.Pattern); err != nil {
+			return fmt.Errorf("config: validate: custom_patterns[%s].pattern: %w", p.Name, err)
+		}
+	}
+
+	for i, entry := range cfg.Privacy.Scrubbing.Allowlist {
+		if strings.ContainsAny(entry, "*+?[(\\") {
+			if _, err := regexp.Compile(entry); err != nil {
+				return fmt.Errorf("config: validate: scrubbing.allowlist[%d]: %w", i, err)
+			}
+		}
+	}
+
+	if cfg.Privacy.Scrubbing.Entropy.Enabled {
+		if cfg.Privacy.Scrubbing.Entropy.Threshold <= 0 {
+			return fmt.Errorf("config: validate: scrubbing.entropy.threshold: must be > 0 when enabled")
+		}
+		if cfg.Privacy.Scrubbing.Entropy.MinLength <= 0 {
+			return fmt.Errorf("config: validate: scrubbing.entropy.min_length: must be > 0 when enabled")
+		}
+	}
+
+	for _, pair := range []struct{ name, val string }{
+		{"storage.retention.hot", cfg.Storage.Retention.Hot},
+		{"storage.retention.warm", cfg.Storage.Retention.Warm},
+		{"storage.retention.compliance_floor", cfg.Storage.Retention.ComplianceFloor},
+	} {
+		if pair.val != "" {
+			if _, err := ParseDuration(pair.val); err != nil {
+				return fmt.Errorf("config: validate: %s: %w", pair.name, err)
+			}
+		}
+	}
+
+	if cfg.Trailers.Prefix != "" && !strings.HasSuffix(cfg.Trailers.Prefix, "-") {
+		return fmt.Errorf("config: validate: trailers.prefix: must end with \"-\"")
+	}
+
+	return nil
 }
 
 // Default returns the SDK default configuration.

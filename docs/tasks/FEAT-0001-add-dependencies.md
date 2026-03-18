@@ -1,7 +1,7 @@
 # FEAT-0001 — Add Dependencies: Task Breakdown
 
 **Feature:** [FEAT-0001 — Add Dependencies](../features/FEAT-0001-add-dependencies.md)
-**Status:** In progress
+**Status:** Completed
 
 ---
 
@@ -92,12 +92,12 @@ feat: add dependencies for go-git, sqlite, ulid, yaml, and mcp-go (FEAT-0001)
 
 ## Acceptance Criteria
 
-- [ ] `go mod tidy` succeeds
-- [ ] `CGO_ENABLED=0 go build ./cmd/opax/` succeeds
-- [ ] `make test` passes (all six smoke tests green)
-- [ ] `make lint` (`go vet ./...`) reports no issues
-- [ ] `TestSmokeSQLiteFTS5` passes — FTS5 confirmed working with `modernc.org/sqlite`
-- [ ] `TestSmokeGoGit` passes — repo opens, HEAD resolves
-- [ ] `TestSmokeULID` passes — generation, parsing, timestamp, monotonic ordering
-- [ ] `TestSmokeYAML` passes — strict mode rejects unknown keys
-- [ ] `TestSmokeMCPGo` passes — server type instantiates without panic
+- [x] `go mod tidy` succeeds
+- [x] `CGO_ENABLED=0 go build ./cmd/opax/` succeeds
+- [x] `make test` passes (all six smoke tests green)
+- [x] `make lint` (`go vet ./...`) reports no issues
+- [x] `TestSmokeSQLiteFTS5` passes — FTS5 confirmed working with `modernc.org/sqlite`
+- [x] `TestSmokeGoGit` passes — repo opens, HEAD resolves
+- [x] `TestSmokeULID` passes — generation, parsing, timestamp, monotonic ordering
+- [x] `TestSmokeYAML` passes — strict mode rejects unknown keys
+- [x] `TestSmokeMCPGo` passes — server type instantiates without panic

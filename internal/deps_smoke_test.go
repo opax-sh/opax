@@ -7,6 +7,8 @@ package deps_smoke_test
 import (
 	"crypto/rand"
 	"database/sql"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,11 +20,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// findModuleRoot walks up from the current working directory until it finds a
+// directory containing go.mod, which is the module root (and the repo root).
+func findModuleRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod not found — not in a Go module")
+		}
+		dir = parent
+	}
+}
+
 // TestSmokeGoGit opens this repository via git.PlainOpen and reads HEAD,
 // verifying that a valid commit hash is returned.
 func TestSmokeGoGit(t *testing.T) {
-	// Test runs from internal/, so ".." reaches the repo root.
-	repo, err := gogit.PlainOpen("..")
+	repo, err := gogit.PlainOpen(findModuleRoot(t))
 	if err != nil {
 		t.Fatalf("git: PlainOpen failed: %v", err)
 	}

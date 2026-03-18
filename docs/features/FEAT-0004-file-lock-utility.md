@@ -1,7 +1,7 @@
 # FEAT-0004 — File Lock Utility
 
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
-**Status:** in-progress
+**Status:** Completed
 **Dependencies:** FEAT-0001 (stdlib only, no external deps needed)
 **Dependents:** All downstream write paths (git plumbing writes, write orchestrator) — every write path acquires this lock
 

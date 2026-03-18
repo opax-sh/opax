@@ -1,7 +1,7 @@
 # FEAT-0001 — Add Dependencies
 
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
-**Status:** Not started
+**Status:** Completed
 **Dependencies:** None
 **Dependents:** FEAT-0002, FEAT-0003, FEAT-0004 (all need imports available)
 
@@ -27,7 +27,7 @@ The overriding constraint is **pure Go, single binary, zero runtime dependencies
 
 **Smoke test:** Open an existing git repository via `git.PlainOpen()`, read HEAD, verify it returns a valid commit hash.
 
-**Risk:** Tree manipulation complexity is the highest-risk item in Phase 0 (see E1.3). The smoke test should verify basic plumbing operations: create a blob, create a tree entry, read it back.
+**Risk:** Tree manipulation complexity is the highest-risk item in Phase 0 (see E1.3). Write-path validation (blob creation, tree manipulation) is deferred to E1 where real plumbing tests will exercise these operations against a live orphan branch.
 
 ### 2. modernc.org/sqlite — Embedded SQLite
 

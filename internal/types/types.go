@@ -5,6 +5,7 @@ package types
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -204,4 +205,61 @@ func (r AttrReason) Valid() bool {
 		return true
 	}
 	return false
+}
+
+// Privacy metadata is present on every record artifact.
+// Default for new records: Tier = TierTeam, Scrubbed = false.
+type Privacy struct {
+	Tier           PrivacyTier `json:"tier"`
+	Scrubbed       bool        `json:"scrubbed"`
+	ScrubVersion   string      `json:"scrub_version,omitempty"`
+	ScrubDetectors []string    `json:"scrub_detectors,omitempty"`
+}
+
+// Session mirrors sessions/{shard}/{id}/metadata.json from data-spec.md §2.2.
+type Session struct {
+	ID           SessionID `json:"id"`
+	Version      int       `json:"version"`
+	Provider     string    `json:"provider"`
+	Model        string    `json:"model,omitempty"`
+	Branch       string    `json:"branch,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	EndedAt      time.Time `json:"ended_at,omitempty"`
+	ExitCode     *int      `json:"exit_code,omitempty"`
+	FilesChanged int       `json:"files_changed,omitempty"`
+	LinesAdded   int       `json:"lines_added,omitempty"`
+	LinesRemoved int       `json:"lines_removed,omitempty"`
+	FilesTouched []string  `json:"files_touched,omitempty"`
+	ContentHash  string    `json:"content_hash,omitempty"`
+	Privacy      Privacy   `json:"privacy"`
+	Tags         []string  `json:"tags,omitempty"`
+}
+
+// Attribution links a session to a save with a reason.
+type Attribution struct {
+	SessionID SessionID  `json:"session_id"`
+	Reason    AttrReason `json:"reason"`
+}
+
+// Save mirrors saves/{shard}/{id}/metadata.json from data-spec.md §2.4.
+type Save struct {
+	ID            SaveID        `json:"id"`
+	Version       int           `json:"version"`
+	CommitHash    string        `json:"commit_hash"`
+	Sessions      []Attribution `json:"sessions,omitempty"`
+	Branch        string        `json:"branch,omitempty"`
+	CreatedAt     time.Time     `json:"created_at"`
+	FilesInCommit []string      `json:"files_in_commit,omitempty"`
+	ContentHash   string        `json:"content_hash,omitempty"`
+	Privacy       Privacy       `json:"privacy"`
+}
+
+// Note holds generic note content for any namespace. Content varies by
+// namespace; this package does not interpret it — that is the plugin's job.
+// Mirrors data-spec.md §3.2.
+type Note struct {
+	CommitHash string          `json:"commit_hash"`
+	Namespace  string          `json:"namespace"`
+	Content    json.RawMessage `json:"content"`
+	Version    int             `json:"version"`
 }

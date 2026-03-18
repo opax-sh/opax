@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -246,5 +247,164 @@ func TestAttrReasonValid(t *testing.T) {
 				t.Errorf("AttrReason(%q).Valid() = %v, want %v", tt.reason, got, tt.valid)
 			}
 		})
+	}
+}
+
+func TestSessionJSON(t *testing.T) {
+	exitCode := 0
+	original := types.Session{
+		ID:           types.NewSessionID(),
+		Version:      1,
+		Provider:     "anthropic",
+		Model:        "claude-opus-4-6",
+		Branch:       "main",
+		StartedAt:    time.Now().UTC().Truncate(time.Second),
+		ExitCode:     &exitCode,
+		FilesChanged: 3,
+		LinesAdded:   10,
+		LinesRemoved: 5,
+		FilesTouched: []string{"main.go", "types.go"},
+		ContentHash:  "deadbeef",
+		Privacy: types.Privacy{
+			Tier:     types.TierTeam,
+			Scrubbed: false,
+		},
+		Tags: []string{"feature"},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded types.Session
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if original.ID != decoded.ID {
+		t.Errorf("ID: got %v, want %v", decoded.ID, original.ID)
+	}
+	if original.Version != decoded.Version {
+		t.Errorf("Version: got %v, want %v", decoded.Version, original.Version)
+	}
+	if original.Provider != decoded.Provider {
+		t.Errorf("Provider: got %v, want %v", decoded.Provider, original.Provider)
+	}
+	if original.Privacy.Tier != decoded.Privacy.Tier {
+		t.Errorf("Privacy.Tier: got %v, want %v", decoded.Privacy.Tier, original.Privacy.Tier)
+	}
+}
+
+func TestSessionFieldNames(t *testing.T) {
+	exitCode := 1
+	s := types.Session{
+		ID:           types.NewSessionID(),
+		Version:      1,
+		Provider:     "openai",
+		StartedAt:    time.Now().UTC(),
+		ExitCode:     &exitCode,
+		FilesTouched: []string{"foo.go"},
+		Privacy: types.Privacy{
+			Tier:           types.TierPrivate,
+			Scrubbed:       true,
+			ScrubVersion:   "v1",
+			ScrubDetectors: []string{"regex"},
+		},
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	raw := string(data)
+	for _, field := range []string{"started_at", "files_touched", "scrub_version", "scrub_detectors"} {
+		if !strings.Contains(raw, `"`+field+`"`) {
+			t.Errorf("JSON missing field %q in: %s", field, raw)
+		}
+	}
+}
+
+func TestSessionExitCode(t *testing.T) {
+	zero := 0
+	// nil exit_code should be omitted
+	s1 := types.Session{ID: types.NewSessionID(), Version: 1, Provider: "x", StartedAt: time.Now(), Privacy: types.Privacy{Tier: types.TierTeam}}
+	data1, _ := json.Marshal(s1)
+	if strings.Contains(string(data1), "exit_code") {
+		t.Errorf("nil ExitCode should be omitted, got: %s", data1)
+	}
+	// exit_code: 0 should be present
+	s2 := s1
+	s2.ExitCode = &zero
+	data2, _ := json.Marshal(s2)
+	if !strings.Contains(string(data2), `"exit_code":0`) {
+		t.Errorf("ExitCode=0 should serialize as \"exit_code\":0, got: %s", data2)
+	}
+}
+
+func TestSaveJSON(t *testing.T) {
+	original := types.Save{
+		ID:         types.NewSaveID(),
+		Version:    1,
+		CommitHash: "abc123def456",
+		Sessions: []types.Attribution{
+			{SessionID: types.NewSessionID(), Reason: types.AttrFileOverlap},
+		},
+		Branch:        "main",
+		CreatedAt:     time.Now().UTC().Truncate(time.Second),
+		FilesInCommit: []string{"go.mod", "main.go"},
+		Privacy:       types.Privacy{Tier: types.TierTeam},
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded types.Save
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if original.ID != decoded.ID {
+		t.Errorf("ID: got %v, want %v", decoded.ID, original.ID)
+	}
+	if original.CommitHash != decoded.CommitHash {
+		t.Errorf("CommitHash: got %v, want %v", decoded.CommitHash, original.CommitHash)
+	}
+	if len(decoded.Sessions) != 1 || decoded.Sessions[0].Reason != types.AttrFileOverlap {
+		t.Errorf("Sessions: got %+v, want one AttrFileOverlap entry", decoded.Sessions)
+	}
+	// spot-check JSON field name
+	if !strings.Contains(string(data), `"commit_hash"`) {
+		t.Errorf("JSON missing field \"commit_hash\" in: %s", data)
+	}
+}
+
+func TestNoteJSON(t *testing.T) {
+	raw := json.RawMessage(`{"key":"value","nested":{"n":42}}`)
+	original := types.Note{
+		CommitHash: "deadbeef",
+		Namespace:  "workflows",
+		Content:    raw,
+		Version:    1,
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded types.Note
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if string(decoded.Content) != string(raw) {
+		t.Errorf("Content: got %s, want %s", decoded.Content, raw)
+	}
+}
+
+func TestPrivacyDefaults(t *testing.T) {
+	var p types.Privacy
+	if p.Tier != "" {
+		t.Errorf("zero Privacy.Tier = %q, want empty string", p.Tier)
+	}
+	if p.Scrubbed {
+		t.Error("zero Privacy.Scrubbed = true, want false")
+	}
+	if p.Tier.Valid() {
+		t.Error("empty PrivacyTier.Valid() = true, want false")
 	}
 }

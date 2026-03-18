@@ -22,8 +22,8 @@ go mod tidy             # After adding/removing imports
 
 1. Check `docs/product/roadmap.md` for the epic/feature this maps to
 2. Write or update the relevant doc in `docs/` before opening a PR:
-   - `docs/epics/E{N}-{name}.md` — epic spec (scope, acceptance criteria, dependencies)
-   - `docs/features/E{N}.{M}-{name}.md` — feature spec (design, edge cases, test plan)
+   - `docs/epics/EPIC-{XXXX}-{name}.md` — epic spec (scope, acceptance criteria, dependencies)
+   - `docs/features/FEAT-{XXXX}-{name}.md` — feature spec (design, edge cases, test plan). `FEAT-XXXX` maps to `feat/FEAT-XXXX-{name}` git branches
    - `docs/adrs/ADR-{NNN}-{name}.md` — architecture decision record (for non-obvious choices)
    - `docs/tasks/` — task breakdowns when a feature needs sub-steps
 3. Reference the doc in your commit message or PR description

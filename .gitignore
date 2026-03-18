@@ -18,7 +18,7 @@ coverage/
 
 # Claude Code
 .claude/settings.local.json
-docs/superpowers/
+docs/tasks/
 
 # IDE
 .idea/

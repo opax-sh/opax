@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -233,6 +235,56 @@ func Default() *OpaxConfig {
 			Prefix:  "Opax-",
 		},
 	}
+}
+
+// Load reads config from the hierarchy and returns the merged, validated result.
+// repoRoot is the path to the git repository root (containing .opax/).
+// Personal config is read from ~/.config/opax/config.yaml.
+func Load(repoRoot string) (*OpaxConfig, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("config: resolve home directory: %w", err)
+	}
+	personalDir := filepath.Join(home, ".config", "opax")
+	return LoadWithPersonalDir(repoRoot, personalDir)
+}
+
+// LoadWithPersonalDir reads config with an explicit personal config directory.
+// Exported for testing — production code should use Load().
+func LoadWithPersonalDir(repoRoot, personalDir string) (*OpaxConfig, error) {
+	cfg := Default()
+
+	teamPath := filepath.Join(repoRoot, ".opax", "config.yaml")
+	personalPath := filepath.Join(personalDir, "config.yaml")
+
+	for _, path := range []string{teamPath, personalPath} {
+		raw, err := readConfigFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if raw != nil {
+			cfg = mergeRaw(cfg, raw)
+		}
+	}
+
+	if err := Validate(cfg); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+// readConfigFile reads and decodes a YAML config file.
+// Returns (nil, nil) if the file does not exist.
+func readConfigFile(path string) (*rawConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("config: %s: %w", path, err)
+	}
+	return decodeYAML(data, path)
 }
 
 // rawConfig mirrors OpaxConfig but uses pointer fields to distinguish

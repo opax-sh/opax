@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -356,5 +358,250 @@ func TestValidateEntropy(t *testing.T) {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// --- Test helpers ---
+
+func writeTeamConfig(t *testing.T, repoRoot, content string) {
+	t.Helper()
+	dir := filepath.Join(repoRoot, ".opax")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writePersonalConfig(t *testing.T, personalDir, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(personalDir, "config.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Load tests ---
+
+func TestLoadNoFiles(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := config.Default()
+	if cfg.Privacy.Version != want.Privacy.Version {
+		t.Errorf("Version = %d, want %d", cfg.Privacy.Version, want.Privacy.Version)
+	}
+	if cfg.Privacy.Scrubbing.Mode != want.Privacy.Scrubbing.Mode {
+		t.Errorf("Mode = %q, want %q", cfg.Privacy.Scrubbing.Mode, want.Privacy.Scrubbing.Mode)
+	}
+}
+
+func TestLoadTeamOnly(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n")
+
+	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Privacy.Scrubbing.Mode != types.ScrubReject {
+		t.Errorf("Mode = %q, want %q", cfg.Privacy.Scrubbing.Mode, types.ScrubReject)
+	}
+	if cfg.Privacy.Version != 1 {
+		t.Errorf("Version = %d, want 1 (default preserved)", cfg.Privacy.Version)
+	}
+}
+
+func TestLoadTeamAndPersonal(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n    builtin_detectors:\n      - aws_keys\n      - github_tokens\n")
+
+	personalDir := t.TempDir()
+	writePersonalConfig(t, personalDir, "privacy:\n  scrubbing:\n    mode: warn\n    builtin_detectors:\n      - aws_keys\n")
+
+	cfg, err := config.LoadWithPersonalDir(dir, personalDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Privacy.Scrubbing.Mode != types.ScrubWarn {
+		t.Errorf("Mode = %q, want %q (personal override)", cfg.Privacy.Scrubbing.Mode, types.ScrubWarn)
+	}
+	if len(cfg.Privacy.Scrubbing.BuiltinDetectors) != 1 {
+		t.Fatalf("BuiltinDetectors len = %d, want 1 (slice replace)", len(cfg.Privacy.Scrubbing.BuiltinDetectors))
+	}
+}
+
+// --- Merge semantics tests ---
+
+func TestMergeScalarOverride(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n")
+
+	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Privacy.Scrubbing.Mode != types.ScrubReject {
+		t.Errorf("Mode = %q, want %q", cfg.Privacy.Scrubbing.Mode, types.ScrubReject)
+	}
+	if cfg.Privacy.Version != 1 {
+		t.Errorf("Version = %d, want 1 (default)", cfg.Privacy.Version)
+	}
+}
+
+func TestMergeSliceReplace(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    builtin_detectors:\n      - aws_keys\n")
+
+	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Privacy.Scrubbing.BuiltinDetectors) != 1 {
+		t.Fatalf("BuiltinDetectors len = %d, want 1", len(cfg.Privacy.Scrubbing.BuiltinDetectors))
+	}
+	if cfg.Privacy.Scrubbing.BuiltinDetectors[0] != "aws_keys" {
+		t.Errorf("BuiltinDetectors[0] = %q, want %q", cfg.Privacy.Scrubbing.BuiltinDetectors[0], "aws_keys")
+	}
+}
+
+func TestMergeMapMerge(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "capture:\n  last_capture:\n    claude-code: \"2025-01-01T00:00:00Z\"\n    codex: \"2025-01-02T00:00:00Z\"\n")
+
+	personalDir := t.TempDir()
+	writePersonalConfig(t, personalDir, "capture:\n  last_capture:\n    claude-code: \"2025-02-01T00:00:00Z\"\n    cursor: \"2025-02-01T00:00:00Z\"\n")
+
+	cfg, err := config.LoadWithPersonalDir(dir, personalDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Capture.LastCapture["claude-code"] != "2025-02-01T00:00:00Z" {
+		t.Errorf("claude-code = %q, want override", cfg.Capture.LastCapture["claude-code"])
+	}
+	if cfg.Capture.LastCapture["codex"] != "2025-01-02T00:00:00Z" {
+		t.Errorf("codex = %q, want base preserved", cfg.Capture.LastCapture["codex"])
+	}
+	if cfg.Capture.LastCapture["cursor"] != "2025-02-01T00:00:00Z" {
+		t.Errorf("cursor = %q, want overlay added", cfg.Capture.LastCapture["cursor"])
+	}
+}
+
+func TestBooleanFalseOverride(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "trailers:\n  enabled: false\n")
+
+	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Trailers.Enabled {
+		t.Error("Trailers.Enabled = true, want false (explicit override of default true)")
+	}
+}
+
+// --- Strict parsing tests ---
+
+func TestStrictUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "unknown_key: value\n")
+
+	_, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err == nil {
+		t.Error("Load() should reject unknown keys")
+	}
+	if err != nil && !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("error %q should contain file path", err)
+	}
+}
+
+// --- Edge case tests ---
+
+func TestEmptyConfigFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"document separator", "---\n"},
+		{"whitespace only", "   \n\n"},
+		{"empty", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTeamConfig(t, dir, tt.content)
+
+			cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Privacy.Version != 1 {
+				t.Errorf("Version = %d, want 1 (default)", cfg.Privacy.Version)
+			}
+		})
+	}
+}
+
+func TestPartialConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n")
+
+	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Privacy.Scrubbing.Mode != types.ScrubReject {
+		t.Errorf("Mode = %q, want reject", cfg.Privacy.Scrubbing.Mode)
+	}
+	if !cfg.Trailers.Enabled {
+		t.Error("Trailers.Enabled should be default true")
+	}
+	if cfg.Trailers.Prefix != "Opax-" {
+		t.Errorf("Trailers.Prefix = %q, want default", cfg.Trailers.Prefix)
+	}
+}
+
+func TestLoadConfigIsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	teamDir := filepath.Join(dir, ".opax")
+	if err := os.MkdirAll(filepath.Join(teamDir, "config.yaml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err == nil {
+		t.Error("Load() should error when config.yaml is a directory")
+	}
+	if err != nil && !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("error %q should mention file path", err)
+	}
+}
+
+func TestLoadUnreadableFile(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root, permission test unreliable")
+	}
+	dir := t.TempDir()
+	teamDir := filepath.Join(dir, ".opax")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(teamDir, "config.yaml")
+	if err := os.WriteFile(path, []byte("privacy:\n  version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o644) })
+
+	_, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err == nil {
+		t.Error("Load() should error for unreadable file")
+	}
+	if err != nil && !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("error %q should mention file path", err)
 	}
 }

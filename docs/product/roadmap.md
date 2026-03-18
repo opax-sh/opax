@@ -10,6 +10,13 @@
 
 This roadmap defines the build order from current state through Phase 0 (MVP) and outlines Phases 1-3 at epic level. It will be broken into epics and features for execution.
 
+### Current implementation snapshot (repo)
+
+- Implemented foundations: dependencies, `internal/types`, `internal/config`, and related tests.
+- Package scaffolds exist for `git`, `store`, `cas`, `capture`, `hygiene`, `mcp`, `plugin`, and `plugins/memory`.
+- CLI surface exists, but non-version commands are currently stubs.
+- Current command namespace for session-oriented commands is `opax session ...`.
+
 **Phase 0 exit criteria (from PRD):** Developer uses Claude Code with passive capture. On commit, save is created with session metadata + transcript hash. `opax search "auth"` retrieves relevant sessions. Another agent in same repo gets same results. Storage compaction runs. Secret scrubbing catches API keys.
 
 ---
@@ -147,10 +154,10 @@ E0: Foundation
 | #    | Feature                  | Description                                                                                                           |
 | ---- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | E6.1 | SearchStrategy interface | search_mode field (keyword/semantic/hybrid). Phase 0: FTS5Strategy only                                               |
-| E6.2 | FTS5 search              | Query opax_sessions_fts. Ranked results with snippets. Filters: agent, branch, tags, date range, --limit              |
-| E6.3 | `opax search` command    | Wire CLI stub → FTS5 search. Text output (default) + JSON (--json). Show id, agent, branch, tags, created_at, snippet |
-| E6.4 | `opax session list`      | Query opax_sessions with filters, pagination. Table or JSON output                                                    |
-| E6.5 | `opax session get`       | Query by ID, fetch summary + transcript from CAS if content_hash set. Metadata + content output                       |
+| E6.2 | FTS5 search              | Query opax_sessions_fts. Ranked results with snippets. Filters: provider, branch, tags, date range, --limit              |
+| E6.3 | `opax search` command    | Wire CLI stub → FTS5 search. Text output (default) + JSON (--json). Show id, provider, branch, tags, created_at, snippet |
+| E6.4 | `opax session list`      | Query opax_sessions with filters, pagination. Table or JSON output |
+| E6.5 | `opax session get`       | Query by ID, fetch summary + transcript from CAS if content_hash set. Metadata + content output |
 
 
 ---
@@ -325,7 +332,7 @@ E0: Foundation
 | `internal/store/store.go`                   | E5   | SQLite materialization + StorageBackend     |
 | `internal/cas/cas.go`                       | E2   | Content-addressed storage                   |
 | `internal/capture/capture.go`               | E7   | Capture coordinator                         |
-| `internal/capture/claudecode/claudecode.go` | E7   | Claude Code JSONL reader                    |
+| `internal/capture/claude/claude.go`         | E7   | Claude Code JSONL reader                    |
 | `internal/capture/codex/codex.go`           | E7   | Codex session reader                        |
 | `internal/hygiene/hygiene.go`               | E3   | Secret scrubbing pipeline                   |
 | `internal/plugin/plugin.go`                 | E8   | Plugin interface + loading                  |
@@ -333,10 +340,8 @@ E0: Foundation
 | `plugins/memory/memory.go`                  | E8   | Memory plugin (primary value)               |
 
 
-**New files to create:**
+**Planned files not yet present in repo:**
 
-- `internal/types/types.go` (E0.2)
-- `internal/config/config.go` (E0.3)
 - `internal/lock/lock.go` (E0.4)
 
 ---
@@ -352,4 +357,3 @@ Phase 0 is verified by running the E2E integration test (E12.1):
 5. Simulate Codex session, same repo — `opax search` returns same results
 6. `opax storage stats` — shows record counts and sizes
 7. Verify content containing `AKIA...` test key shows `[REDACTED:aws_key]`
-

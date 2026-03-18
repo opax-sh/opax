@@ -8,6 +8,19 @@
 
 ---
 
+## Current Implementation Snapshot
+
+As of this document version, the repository has completed foundation work but not the full Phase 0 product loop.
+
+- Implemented: dependency setup, `internal/types`, `internal/config`, and related tests.
+- Scaffolded: `internal/git`, `internal/store`, `internal/cas`, `internal/capture`, `internal/hygiene`, `internal/mcp`, `internal/plugin`, `plugins/memory`.
+- CLI today: `opax version`, `opax init`, `opax search`, `opax db rebuild`, `opax session list/get`, `opax storage stats`, `opax doctor`.
+- Current command status: most non-version commands are present but still stubs.
+
+The rest of this PRD describes the target architecture and phased delivery plan.
+
+---
+
 ## Vision
 
 Opax is the structured recording layer for agent work, built on git.
@@ -119,7 +132,7 @@ Opax advances state reactively. The workflow state machine only moves forward wh
 
 Every agent-produced commit is annotated with structured metadata via git notes and an `Opax-Save` trailer: which agent produced it, which workflow stage, how long the session took. Passive capture ensures session recording without agent cooperation. Review assessments, test results, and eval scores are also notes. The complete provenance chain from initial prompt to production code is captured as immutable, cryptographically-linked git history.
 
-For commits without any agent session (pure human coding), no session record exists — this is correct behavior since compliance concerns AI system logging, not all development.
+For commits without any agent session (pure human coding), no session archive exists — this is correct behavior since compliance concerns AI system logging, not all development.
 
 This maps directly to EU AI Act Article 12 (record-keeping), Article 14 (human oversight via gates), NIST AI RMF, and ISO 42001 requirements. Developers don't do extra compliance work — the audit trail is a natural byproduct of using the product. See companion: *Compliance Framework*.
 
@@ -290,5 +303,3 @@ Accumulated architectural decisions from design conversations, in chronological 
 | *Hygiene Spec* | Secret scrubbing pipeline, config, metadata on records |
 | *Compliance Framework*    | EU AI Act, NIST AI RMF, ISO 42001, Colorado AI Act mapping, data model additions, retention  |
 | *Storage & Scaling Spec*  | Two-tier storage, capacity math, archive tiers, StorageBackend interface, compaction         |
-
-

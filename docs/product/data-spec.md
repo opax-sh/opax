@@ -12,6 +12,8 @@ This specification defines how Opax stores structured agent activity data as sta
 
 The spec uses five git primitives: orphan branches, commit trailers, git notes, custom refs, and annotated tags. All Opax data lives under the `opax/` namespace to avoid collision with user branches, refs, and tags.
 
+**Implementation snapshot note:** This document contains target-state sections for Phase 0+ plus current schema contracts. Where there is drift, current code-level contracts are defined by `internal/types` and current CLI surface in `cmd/opax/main.go`.
+
 ---
 
 ## 1. Namespace Convention
@@ -80,7 +82,7 @@ opax/v1/
 
 **Path:** `opax/v1/sessions/{shard}/{id}/`
 
-Complete records of agent sessions: what was asked, what the agent did, what code changed, how long it took.
+Complete records of agent sessions: what was asked, what the agent did, and what code changed.
 
 ```
 sessions/a3/ses_01JQXYZ.../
@@ -94,14 +96,12 @@ sessions/a3/ses_01JQXYZ.../
 {
   "id": "ses_01JQXYZ...",
   "version": 1,
-  "agent": "claude-code | aider | codex | goose | unknown",
+  "provider": "anthropic | openai | google | unknown",
   "model": "claude-sonnet-4-20250514",
   "branch": "feature/auth-implementation",
   "started_at": "2026-03-13T10:30:00Z",
   "ended_at": "2026-03-13T11:15:00Z",
-  "duration_seconds": 2700,
   "exit_code": 0,
-  "commits": ["abc1234", "def5678"],
   "files_changed": 12,
   "lines_added": 340,
   "lines_removed": 45,
@@ -139,8 +139,8 @@ saves/7f/sav_01JQXYZ.../
   "version": 1,
   "commit_hash": "abc1234def5678...",
   "sessions": [
-    { "id": "ses_01JQXYZ...", "attribution": "file_overlap" },
-    { "id": "ses_01JQABC...", "attribution": "temporal" }
+    { "session_id": "ses_01JQXYZ...", "reason": "file_overlap" },
+    { "session_id": "ses_01JQABC...", "reason": "temporal" }
   ],
   "branch": "feature/auth-implementation",
   "created_at": "2026-03-13T11:15:00Z",
@@ -188,7 +188,7 @@ All notes are JSON objects with a `version` field.
   "version": 1,
   "session_id": "ses_01JQXYZ...",
   "save_id": "sav_01JQXYZ...",
-  "agent": "claude-code",
+  "provider": "anthropic",
   "duration_seconds": 2700
 }
 ```
@@ -223,7 +223,7 @@ Opax-Save: sav_01JQXYZ...
 | `Opax-Save`  | Save ID | Links commit to save, which fans out to sessions   |
 
 
-The trailer is minimal — just the save ID. Agent identity and duration live on the session records linked from the save, not on the commit itself. Plugins may define additional trailers (e.g., `Opax-Stage`, `Opax-Workflow`).
+The trailer is minimal — just the save ID. Agent identity and duration live on the session archives linked from the save, not on the commit itself. Plugins may define additional trailers (e.g., `Opax-Stage`, `Opax-Workflow`).
 
 Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (`--no-trailers`), session linkage falls back to git notes via `refs/opax/notes/sessions` — functional but mutable.
 
@@ -260,14 +260,12 @@ The SQLite database at `.git/opax/opax.db` is a materialized view of all Opax gi
 CREATE TABLE opax_sessions (
   id TEXT PRIMARY KEY,
   version INTEGER NOT NULL,
-  agent TEXT NOT NULL,
+  provider TEXT NOT NULL,
   model TEXT,
   branch TEXT,
   started_at TEXT NOT NULL,
   ended_at TEXT,
-  duration_seconds INTEGER,
   exit_code INTEGER,
-  commits TEXT,  -- JSON array
   files_changed INTEGER,
   lines_added INTEGER,
   lines_removed INTEGER,
@@ -295,7 +293,7 @@ CREATE TABLE opax_saves (
   id TEXT PRIMARY KEY,
   version INTEGER NOT NULL,
   commit_hash TEXT NOT NULL,
-  sessions TEXT,  -- JSON array of {id, attribution} objects
+  sessions TEXT,  -- JSON array of {session_id, reason} objects
   branch TEXT,
   content_hash TEXT,
   hygiene_scrubbed BOOLEAN DEFAULT FALSE,
@@ -318,7 +316,7 @@ CREATE INDEX idx_notes_namespace ON opax_notes(namespace);
 
 -- FTS5 full-text search
 CREATE VIRTUAL TABLE opax_sessions_fts USING fts5(
-  id, agent, branch, tags, summary,
+  id, provider, branch, tags, summary,
   content=opax_sessions,
   content_rowid=rowid
 );
@@ -476,7 +474,7 @@ The memory plugin exposes MCP tools for querying session data. Schemas below are
     "type": "object",
     "properties": {
       "query": { "type": "string" },
-      "agent": { "type": "string" },
+      "provider": { "type": "string" },
       "branch": { "type": "string" },
       "tags": { "type": "array", "items": { "type": "string" } },
       "after": { "type": "string", "format": "date-time" },
@@ -496,7 +494,7 @@ The memory plugin exposes MCP tools for querying session data. Schemas below are
   "inputSchema": {
     "type": "object",
     "properties": {
-      "agent": { "type": "string" },
+      "provider": { "type": "string" },
       "branch": { "type": "string" },
       "tags": { "type": "array", "items": { "type": "string" } },
       "limit": { "type": "number", "default": 20 }
@@ -520,5 +518,3 @@ The memory plugin exposes MCP tools for querying session data. Schemas below are
   }
 }
 ```
-
-

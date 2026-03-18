@@ -17,7 +17,7 @@ The spec uses five git primitives: orphan branches, commit trailers, git notes, 
 ## 1. Namespace Convention
 
 ```
-Orphan branch:      opax/data/v1
+Orphan branch:      opax/v1
 
 Git notes:          refs/notes/opax-{namespace}
 
@@ -30,7 +30,7 @@ Commit trailers:    Opax-Session: {session-id}
                     Opax-Duration: {seconds}
 ```
 
-The `opax/` prefix is configurable but defaults to `opax/`. All data is stored on the single `opax/data/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/data/v1/ext-{name}/`. Extension plugins choose their own ID prefixes (avoiding first-party prefixes) and follow the same sharding convention.
+The `opax/` prefix is configurable but defaults to `opax/`. All data is stored on the single `opax/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/v1/ext-{name}/`. Extension plugins choose their own ID prefixes (avoiding first-party prefixes) and follow the same sharding convention.
 
 ### ID Format
 
@@ -47,12 +47,12 @@ Plugins define their own ID prefixes (e.g., `wrk_`, `act_`) and register them to
 
 ## 2. Single Consolidated Orphan Branch
 
-All Opax data lives on a single orphan branch: `opax/data/v1`. This branch has no common ancestor with the main codebase. Records are organized in a sharded directory structure using the first two hex characters of the SHA-256 hash of the record ID.
+All Opax data lives on a single orphan branch: `opax/v1`. This branch has no common ancestor with the main codebase. Records are organized in a sharded directory structure using the first two hex characters of the SHA-256 hash of the record ID.
 
 ### 2.1 Branch Structure
 
 ```
-opax/data/v1/
+opax/v1/
 ├── sessions/
 │   ├── a3/                          # sha256("ses_01JQXYZ...")[:2]
 │   │   └── ses_01JQXYZ.../
@@ -78,7 +78,7 @@ opax/data/v1/
 
 ### 2.2 Session Archives
 
-**Path:** `opax/data/v1/sessions/{shard}/{id}/`
+**Path:** `opax/v1/sessions/{shard}/{id}/`
 
 Complete records of agent sessions: what was asked, what the agent did, what code changed, how long it took.
 
@@ -120,7 +120,7 @@ Bulk content (transcript, diff) is stored in content-addressed storage, referenc
 
 ### 2.4 Saves (Commit-Anchored)
 
-**Path:** `opax/data/v1/saves/{shard}/{id}/`
+**Path:** `opax/v1/saves/{shard}/{id}/`
 
 Saves anchor session data to specific commits. The primary question is "what context produced this commit?" — saves are created on commit.
 
@@ -266,7 +266,7 @@ CREATE TABLE opax_sessions (
   privacy_scrubbed BOOLEAN DEFAULT FALSE,
   privacy_scrub_version TEXT,
   privacy_encrypted BOOLEAN DEFAULT FALSE,
-  git_branch TEXT NOT NULL DEFAULT 'opax/data/v1',
+  git_branch TEXT NOT NULL DEFAULT 'opax/v1',
   git_commit TEXT NOT NULL,
   archive_location TEXT  -- NULL = hot, remote URL = warm/cold
 );
@@ -326,7 +326,7 @@ CREATE TABLE opax_materializer_state (
 
 Plugins store data using two mechanisms the core already materializes:
 
-1. **Branch directories** — plugins write records under `opax/data/v1/ext-{name}/` using the same sharding convention. The core materializer walks these generically during rebuild.
+1. **Branch directories** — plugins write records under `opax/v1/ext-{name}/` using the same sharding convention. The core materializer walks these generically during rebuild.
 2. **Git notes** — plugins register their own note namespaces (e.g., `opax-reviews`, `opax-tests`). Notes are materialized into the generic `opax_notes` table.
 
 Plugins that need richer queries create **views** over `opax_notes` using `json_extract`, not new tables. This keeps the materializer simple — it doesn't need to understand plugin schemas — and preserves the "SQLite is a cache" invariant since `opax db rebuild` only needs to know about core tables.
@@ -383,7 +383,7 @@ Files are sharded by the first two characters of the SHA-256 hash, mirroring git
 1. Content is scrubbed by the privacy pipeline
 2. SHA-256 hash is computed over the scrubbed content
 3. Content is written to `.git/opax/content/{hash[0:2]}/{hash[2:]}`
-4. The raw hex hash is recorded in the metadata file on the `opax/data/v1` branch as `content_hash` (no algorithm prefix — always SHA-256)
+4. The raw hex hash is recorded in the metadata file on the `opax/v1` branch as `content_hash` (no algorithm prefix — always SHA-256)
 
 ### Read Path
 

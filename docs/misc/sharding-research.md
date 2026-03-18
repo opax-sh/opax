@@ -1,13 +1,13 @@
 # Git Tree Sharding Research
 
 **Date:** March 17, 2026
-**Context:** Evaluating whether Opax needs directory sharding on `opax/data/v1`, and if so, what scheme to use.
+**Context:** Evaluating whether Opax needs directory sharding on `opax/v1`, and if so, what scheme to use.
 
 ---
 
 ## Question
 
-Opax stores records on a single orphan branch (`opax/data/v1`) with type directories (`sessions/`, `saves/`, etc.). Each new record adds an entry to a type directory. Should those directories be flat, or sharded into subdirectories?
+Opax stores records on a single orphan branch (`opax/v1`) with type directories (`sessions/`, `saves/`, etc.). Each new record adds an entry to a type directory. Should those directories be flat, or sharded into subdirectories?
 
 ---
 

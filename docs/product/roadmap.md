@@ -58,18 +58,18 @@ E0: Foundation
 
 ### Epic 1: Git Plumbing Layer
 
-**Goal:** Read/write to `opax/data/v1` orphan branch and git notes via go-git plumbing. Never touch working tree. **Riskiest epic** — tree manipulation is the hardest code.
+**Goal:** Read/write to `opax/v1` orphan branch and git notes via go-git plumbing. Never touch working tree. **Riskiest epic** — tree manipulation is the hardest code.
 
 
 | #    | Feature                  | Description                                                                                                                                                                                                                                    |
 | ---- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | E1.1 | Repo discovery           | Open git repo via go-git, validate, locate .git/, create .git/opax/                                                                                                                                                                            |
-| E1.2 | Orphan branch mgmt       | Create `opax/data/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                               |
+| E1.2 | Orphan branch mgmt       | Create `opax/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                               |
 | E1.3 | Write records to branch  | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build full tree from current tip + new subtree. Acquire .git/opax.lock. Fallback: shell out to git plumbing if go-git is too awkward |
 | E1.4 | Read records from branch | Navigate tree at branch tip to shard/id path, read blob contents                                                                                                                                                                               |
 | E1.5 | Git notes operations     | Write/read JSON notes under namespaces (refs/notes/opax-sessions, etc.), handle missing notes ref                                                                                                                                              |
 | E1.6 | Commit trailer parsing   | Read Opax-Session, Opax-Agent trailers from commit messages (read-only in Phase 0)                                                                                                                                                                 |
-| E1.7 | Refspec configuration    | Generate refspec config for .git/config — push notes refs, exclude opax/data/v1 from default fetch                                                                                                                                             |
+| E1.7 | Refspec configuration    | Generate refspec config for .git/config — push notes refs, exclude opax/v1 from default fetch                                                                                                                                             |
 
 
 ---
@@ -134,7 +134,7 @@ E0: Foundation
 | E5.3 | FTS5 setup               | Virtual table opax_sessions_fts. AFTER INSERT/DELETE triggers. **Verify FTS5 works with modernc.org/sqlite early**                                                                                               |
 | E5.4 | StorageBackend interface | InitSchema, Query, QueryOne, Execute, Search, Sync, Rebuild, Transaction. SearchOptions + SearchResult types                                                                                                                         |
 | E5.5 | SQLite adapter           | Implement StorageBackend against modernc.org/sqlite. FTS5 MATCH, json_extract, transactions                                                                                                                                          |
-| E5.6 | Full rebuild             | Walk all commits on opax/data/v1, parse metadata.json files, insert into tables, walk notes refs, update materializer_state. The "always rebuildable from git" guarantee                                                             |
+| E5.6 | Full rebuild             | Walk all commits on opax/v1, parse metadata.json files, insert into tables, walk notes refs, update materializer_state. The "always rebuildable from git" guarantee                                                             |
 | E5.7 | Incremental sync         | Compare current HEAD vs stored git_head, walk only new commits, materialize new records                                                                                                                                              |
 | E5.8 | Dirty flag mechanism     | Write: touch .git/opax/dirty. Read: check flag → incremental sync → remove flag. No daemon needed                                                                                                                                    |
 

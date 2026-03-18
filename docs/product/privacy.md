@@ -194,7 +194,7 @@ privacy:
 Only content files are encrypted. Metadata remains plaintext to preserve git delta compression and enable filtered queries without decryption.
 
 ```
-opax/data/v1/sessions/{shard}/ses_01JQXYZ.../
+opax/v1/sessions/{shard}/ses_01JQXYZ.../
 ├── metadata.json         # PLAINTEXT — agent, tags, timestamps, PrivacyMetadata
 ├── summary.md.age        # ENCRYPTED — session summary
 └── encryption.json       # recipient list, algorithm, encrypted-at timestamp

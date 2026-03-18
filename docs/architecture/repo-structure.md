@@ -94,7 +94,7 @@ A persistent `--json` flag is registered on the root command and inherited by al
 
 ### `internal/git` — Git Plumbing
 
-**Responsibility:** All git operations for the Opax data layer. Orphan branch management (`opax/data/v1`), git notes (read/write across `refs/notes/opax-*` namespaces), commit trailers, custom refs (`refs/opax/*`), and ref updates.
+**Responsibility:** All git operations for the Opax data layer. Orphan branch management (`opax/v1`), git notes (read/write across `refs/notes/opax-*` namespaces), commit trailers, custom refs (`refs/opax/*`), and ref updates.
 
 **Key dependencies:** `go-git` (plumbing-level git operations)
 
@@ -177,7 +177,7 @@ The primary value plugin. Enables context to flow between agent sessions across 
 1. Create `plugins/{name}/{name}.go`
 2. Implement the `OpaxPlugin` interface (namespace registration, schema extensions, CLI subcommands, MCP tools)
 3. Import and register the plugin in `cmd/opax/main.go`
-4. The plugin owns its namespace under `opax/data/v1/` and its SQLite tables
+4. The plugin owns its namespace under `opax/v1/` and its SQLite tables
 
 ---
 
@@ -270,7 +270,7 @@ Agent session ends
     → Platform reader (claudecode/codex) normalizes to common format
     → Privacy pipeline scrubs secrets (non-negotiable: scrub before encrypt)
     → CAS stores bulk content, returns SHA-256 hash
-    → Git plumbing writes metadata to opax/data/v1 branch
+    → Git plumbing writes metadata to opax/v1 branch
     → SQLite materializes new records (incremental sync)
 ```
 

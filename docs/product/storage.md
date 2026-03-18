@@ -89,7 +89,7 @@ CAS data lives on the local filesystem and does not affect git operations (clone
 
 ### The Decision
 
-All Opax data lives on a single orphan branch: `opax/data/v1`. Records are organized in a sharded directory structure using the first two hex characters of `sha256(record_id)`, giving 256 uniformly distributed buckets. Adopted from Entire.io's `entire/checkpoints/v1` pattern. See `docs/misc/sharding-research.md` for benchmarks.
+All Opax data lives on a single orphan branch: `opax/v1`. Records are organized in a sharded directory structure using the first two hex characters of `sha256(record_id)`, giving 256 uniformly distributed buckets. Adopted from Entire.io's `entire/checkpoints/v1` pattern. See `docs/misc/sharding-research.md` for benchmarks.
 
 ### Why Single Branch
 
@@ -111,7 +111,7 @@ Adding a record uses git plumbing commands (never checkout):
 1. `git hash-object -w` — write content files as git blobs
 2. `git mktree` — create tree objects for the directory structure
 3. `git commit-tree` — create commit pointing to new tree, with parent as current branch tip
-4. `git update-ref` — update `opax/data/v1` to point to new commit
+4. `git update-ref` — update `opax/v1` to point to new commit
 
 Concurrent writes serialized via `.git/opax.lock`.
 
@@ -175,14 +175,14 @@ The `content_hash` in git metadata is immutable — it always points to the orig
 
 | Tier | Age | Storage | Query Surface |
 |---|---|---|---|
-| **Hot** | 0-30 days | Same repo (`opax/data/v1` branch) + local CAS | SQLite (full content via CAS) |
+| **Hot** | 0-30 days | Same repo (`opax/v1` branch) + local CAS | SQLite (full content via CAS) |
 | **Warm** | 30-90 days | Git remote (archive repo) | SQLite (metadata only, content fetched on demand from archive remote) |
 | **Cold** | 90+ days | Git bundles on object storage | SQLite (metadata only, content from downloaded bundle) |
 | **Hosted** | All | Git alternates (shared object pool) | Postgres (full cross-repo query surface) |
 
 ### Hot Tier (0-30 days)
 
-Default state. All metadata on the `opax/data/v1` branch. All bulk content in local CAS. Full query access via SQLite FTS5.
+Default state. All metadata on the `opax/v1` branch. All bulk content in local CAS. Full query access via SQLite FTS5.
 
 ### Warm Tier (30-90 days)
 
@@ -306,11 +306,11 @@ The SDK configures refspecs during `opax init` to prevent Opax data from inflati
   fetch = +refs/notes/opax-*:refs/notes/opax-*
 
   # Opax branch NOT fetched by default
-  # Use: opax pull (fetches opax/data/v1)
+  # Use: opax pull (fetches opax/v1)
 
 [push]
   # Notes pushed explicitly
-  # Use: opax push (pushes opax/data/v1 + notes)
+  # Use: opax push (pushes opax/v1 + notes)
 ```
 
 ### Object Packing
@@ -328,7 +328,7 @@ The SDK configures refspecs during `opax init` to prevent Opax data from inflati
 A fresh clone should NOT clone the Opax branch by default. The refspec configuration ensures this. After cloning:
 
 1. `opax init` sets up refspecs and creates the local SQLite database
-2. `opax pull` fetches the `opax/data/v1` branch (can be scoped: `opax pull --since 30d`)
+2. `opax pull` fetches the `opax/v1` branch (can be scoped: `opax pull --since 30d`)
 3. SQLite materializes fetched data
 4. CAS files are fetched on demand or in bulk
 
@@ -346,7 +346,7 @@ Reports current storage usage:
 Opax Storage Report
 ───────────────────
 Repository:     /path/to/repo
-Data branch:    opax/data/v1 (1 branch)
+Data branch:    opax/v1 (1 branch)
 CAS:            .git/opax/content/ (1,847 files)
 Archive:        s3://opax-archive/repo (warm + cold)
 

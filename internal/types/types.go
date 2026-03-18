@@ -224,7 +224,10 @@ type Session struct {
 	Model        string    `json:"model,omitempty"`
 	Branch       string    `json:"branch,omitempty"`
 	StartedAt    time.Time `json:"started_at"`
-	EndedAt      time.Time `json:"ended_at,omitempty"`
+	// EndedAt is the time the session ended. Note: time.Time zero-value with
+	// omitempty still serializes (as "0001-01-01T00:00:00Z") rather than being
+	// omitted — callers should check IsZero() to detect an unset end time.
+	EndedAt time.Time `json:"ended_at,omitempty"`
 	ExitCode     *int      `json:"exit_code,omitempty"`
 	FilesChanged int       `json:"files_changed,omitempty"`
 	LinesAdded   int       `json:"lines_added,omitempty"`

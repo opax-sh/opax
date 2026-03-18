@@ -2,6 +2,7 @@ package types_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -280,17 +281,8 @@ func TestSessionJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if original.ID != decoded.ID {
-		t.Errorf("ID: got %v, want %v", decoded.ID, original.ID)
-	}
-	if original.Version != decoded.Version {
-		t.Errorf("Version: got %v, want %v", decoded.Version, original.Version)
-	}
-	if original.Provider != decoded.Provider {
-		t.Errorf("Provider: got %v, want %v", decoded.Provider, original.Provider)
-	}
-	if original.Privacy.Tier != decoded.Privacy.Tier {
-		t.Errorf("Privacy.Tier: got %v, want %v", decoded.Privacy.Tier, original.Privacy.Tier)
+	if !reflect.DeepEqual(original, decoded) {
+		t.Errorf("Session round-trip mismatch:\n  got  %+v\n  want %+v", decoded, original)
 	}
 }
 
@@ -360,18 +352,33 @@ func TestSaveJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if original.ID != decoded.ID {
-		t.Errorf("ID: got %v, want %v", decoded.ID, original.ID)
+	if !reflect.DeepEqual(original, decoded) {
+		t.Errorf("Save round-trip mismatch:\n  got  %+v\n  want %+v", decoded, original)
 	}
-	if original.CommitHash != decoded.CommitHash {
-		t.Errorf("CommitHash: got %v, want %v", decoded.CommitHash, original.CommitHash)
-	}
-	if len(decoded.Sessions) != 1 || decoded.Sessions[0].Reason != types.AttrFileOverlap {
-		t.Errorf("Sessions: got %+v, want one AttrFileOverlap entry", decoded.Sessions)
-	}
-	// spot-check JSON field name
+	// Keep the commit_hash spot-check (it's also in the plan's acceptance criteria):
 	if !strings.Contains(string(data), `"commit_hash"`) {
 		t.Errorf("JSON missing field \"commit_hash\" in: %s", data)
+	}
+}
+
+func TestSessionEndedAtZeroValue(t *testing.T) {
+	// time.Time with omitempty is NOT omitted when zero — it serializes as
+	// "0001-01-01T00:00:00Z". This is a known limitation of encoding/json.
+	// Callers must use EndedAt.IsZero() to detect an unset end time.
+	s := types.Session{
+		ID:        types.NewSessionID(),
+		Version:   1,
+		Provider:  "x",
+		StartedAt: time.Now(),
+		Privacy:   types.Privacy{Tier: types.TierTeam},
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	// ended_at IS present (zero time.Time not omitted by omitempty)
+	if !strings.Contains(string(data), `"ended_at"`) {
+		t.Errorf("expected ended_at in JSON (zero time.Time not omitted), got: %s", data)
 	}
 }
 

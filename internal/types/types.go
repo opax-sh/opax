@@ -154,24 +154,6 @@ func validatePrefixFormat(prefix string) error {
 	return nil
 }
 
-// PrivacyTier controls access classification for a record.
-type PrivacyTier string
-
-const (
-	TierPublic  PrivacyTier = "public"  // Visible to anyone with repo access.
-	TierTeam    PrivacyTier = "team"    // Visible to team members (default).
-	TierPrivate PrivacyTier = "private" // Visible only to the session owner.
-)
-
-// Valid reports whether t is a defined PrivacyTier constant.
-func (t PrivacyTier) Valid() bool {
-	switch t {
-	case TierPublic, TierTeam, TierPrivate:
-		return true
-	}
-	return false
-}
-
 // ScrubMode determines how detected secrets are handled.
 type ScrubMode string
 
@@ -207,13 +189,12 @@ func (r AttrReason) Valid() bool {
 	return false
 }
 
-// Privacy metadata is present on every record artifact.
-// Default for new records: Tier = TierTeam, Scrubbed = false.
-type Privacy struct {
-	Tier           PrivacyTier `json:"tier"`
-	Scrubbed       bool        `json:"scrubbed"`
-	ScrubVersion   string      `json:"scrub_version,omitempty"`
-	ScrubDetectors []string    `json:"scrub_detectors,omitempty"`
+// Hygiene metadata records secret scrubbing applied to stored content.
+// Default for new records: Scrubbed = false.
+type Hygiene struct {
+	Scrubbed       bool     `json:"scrubbed"`
+	ScrubVersion   string   `json:"scrub_version,omitempty"`
+	ScrubDetectors []string `json:"scrub_detectors,omitempty"`
 }
 
 // Session mirrors sessions/{shard}/{id}/metadata.json from data-spec.md §2.2.
@@ -234,7 +215,7 @@ type Session struct {
 	LinesRemoved int       `json:"lines_removed,omitempty"`
 	FilesTouched []string  `json:"files_touched,omitempty"`
 	ContentHash  string    `json:"content_hash,omitempty"`
-	Privacy      Privacy   `json:"privacy"`
+	Hygiene      Hygiene   `json:"hygiene"`
 	Tags         []string  `json:"tags,omitempty"`
 }
 
@@ -254,7 +235,7 @@ type Save struct {
 	CreatedAt     time.Time     `json:"created_at"`
 	FilesInCommit []string      `json:"files_in_commit,omitempty"`
 	ContentHash   string        `json:"content_hash,omitempty"`
-	Privacy       Privacy       `json:"privacy"`
+	Hygiene       Hygiene       `json:"hygiene"`
 }
 
 // Note holds generic note content for any namespace. Content varies by

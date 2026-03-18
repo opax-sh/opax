@@ -2,14 +2,14 @@
 
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
 **Status:** in-progress
-**Dependencies:** FEAT-0001 (needs `yaml.v3`), FEAT-0002 (imports `types.ScrubMode`, `types.PrivacyTier`)
-**Dependents:** E3 (Privacy Pipeline reads scrubbing config), E4 (Write Path reads storage config), E7 (Capture reads capture config), E9 (`opax init` generates default config), E11 (Hooks read trailers config)
+**Dependencies:** FEAT-0001 (needs `yaml.v3`), FEAT-0002 (imports `types.ScrubMode`)
+**Dependents:** E3 (Hygiene pipeline reads scrubbing config), E4 (Write Path reads storage config), E7 (Capture reads capture config), E9 (`opax init` generates default config), E11 (Hooks read trailers config)
 
 ---
 
 ## Problem
 
-Every downstream feature needs configuration: the privacy pipeline needs scrub mode and detector lists, the capture engine needs enabled sources, the write path needs trailer settings, and the storage layer needs retention thresholds. Without a centralized config system, each package would invent its own config format, file location, and validation rules.
+Every downstream feature needs configuration: the hygiene pipeline needs scrub mode and detector lists, the capture engine needs enabled sources, the write path needs trailer settings, and the storage layer needs retention thresholds. Without a centralized config system, each package would invent its own config format, file location, and validation rules.
 
 The config system must support three tiers: SDK defaults (always present, hardcoded), team config (committed to the repo, shared), and personal config (user-local, never committed). This hierarchy lets teams enforce baseline settings while individual developers customize their environment.
 
@@ -19,7 +19,7 @@ The config system must support three tiers: SDK defaults (always present, hardco
 
 ### Package
 
-`internal/config/` — depends on `internal/types` (for `ScrubMode`, `PrivacyTier` enums), `gopkg.in/yaml.v3`, and stdlib only.
+`internal/config/` — depends on `internal/types` (for `ScrubMode`), `gopkg.in/yaml.v3`, and stdlib only.
 
 ### Files
 
@@ -50,22 +50,21 @@ Missing files are silently skipped — not an error. An empty file is valid (all
 
 ```go
 type OpaxConfig struct {
-    Privacy  PrivacyConfig  `yaml:"privacy"`
+    Hygiene  HygieneConfig  `yaml:"hygiene"`
     Storage  StorageConfig  `yaml:"storage"`
     Capture  CaptureConfig  `yaml:"capture"`
     Trailers TrailersConfig `yaml:"trailers"`
 }
 ```
 
-### Privacy Section
+### Hygiene section
 
-Source: privacy.md YAML example and PrivacyMetadata type.
+Source: [hygiene.md](../product/hygiene.md) YAML example and `types.Hygiene` metadata on records.
 
 ```go
-type PrivacyConfig struct {
-    Version      int                `yaml:"version"`
-    Scrubbing    ScrubbingConfig    `yaml:"scrubbing"`
-    DefaultTiers DefaultTiersConfig `yaml:"default_tiers"`
+type HygieneConfig struct {
+    Version   int             `yaml:"version"`
+    Scrubbing ScrubbingConfig `yaml:"scrubbing"`
 }
 
 type ScrubbingConfig struct {
@@ -87,12 +86,6 @@ type EntropyConfig struct {
     Enabled   bool    `yaml:"enabled"`
     Threshold float64 `yaml:"threshold"`
     MinLength int     `yaml:"min_length"`
-}
-
-type DefaultTiersConfig struct {
-    Session  types.PrivacyTier `yaml:"session"`
-    Workflow types.PrivacyTier `yaml:"workflow"`
-    Action   types.PrivacyTier `yaml:"action"`
 }
 ```
 
@@ -141,7 +134,7 @@ type TrailersConfig struct {
 The `Default()` function returns this configuration. These values apply when no config file exists or when a config file omits a field.
 
 ```yaml
-privacy:
+hygiene:
   version: 1
   scrubbing:
     mode: redact
@@ -161,10 +154,6 @@ privacy:
       threshold: 4.5
       min_length: 20
     allowlist: []
-  default_tiers:
-    session: team
-    workflow: team
-    action: team
 
 storage:
   retention:
@@ -240,10 +229,7 @@ func Validate(cfg *OpaxConfig) error
 | Rule              | Field                                | Check                                           |
 | ----------------- | ------------------------------------ | ----------------------------------------------- |
 | Enum validity     | `scrubbing.mode`                     | Must be `redact`, `reject`, or `warn`           |
-| Enum validity     | `default_tiers.session`              | Must be `public`, `team`, or `private`          |
-| Enum validity     | `default_tiers.workflow`             | Must be `public`, `team`, or `private`          |
-| Enum validity     | `default_tiers.action`               | Must be `public`, `team`, or `private`          |
-| Required field    | `privacy.version`                    | Must be > 0                                     |
+| Required field    | `hygiene.version`                    | Must be > 0                                     |
 | Regex compilation | `custom_patterns[*].pattern`         | Each must compile via `regexp.Compile`          |
 | Regex compilation | `allowlist[*]`                       | Each entry that looks like a regex must compile |
 | Pattern name      | `custom_patterns[*].name`            | Must be non-empty                               |
@@ -271,7 +257,7 @@ func ParseDuration(s string) (time.Duration, error)
 ## Edge Cases
 
 - **Empty config file** — a file containing only `---` or whitespace is valid. All defaults apply. No error.
-- **Partial config** — a file that sets only `privacy.scrubbing.mode: reject` is valid. Everything else inherits from defaults.
+- **Partial config** — a file that sets only `hygiene.scrubbing.mode: reject` is valid. Everything else inherits from defaults.
 - **Missing `.opax/` directory** — not an error. Team config is simply absent.
 - **Unreadable config file** — permission errors bubble up as `config: {filepath}: {os error}`.
 - **Config file is a directory** — return a clear error, not a panic.
@@ -292,14 +278,13 @@ func ParseDuration(s string) (time.Duration, error)
 - Map merge: personal `last_capture` keys merge with team's keys
 - Unknown YAML keys cause `Load()` to return an error with file path and key name
 - Invalid `scrubbing.mode` value causes `Validate()` to return an error
-- Invalid `default_tiers` value causes `Validate()` to return an error
 - Invalid regex in `custom_patterns` causes `Validate()` to return an error including pattern name
 - Missing config files are silently skipped
 - Empty config file is valid (all defaults apply)
 - `ParseDuration("30d")` returns 30 * 24 hours
 - `ParseDuration("3y")` returns 365 * 3 * 24 hours
 - `ParseDuration("invalid")` returns an error
-- `Validate()` rejects `privacy.version: 0`
+- `Validate()` rejects `hygiene.version: 0`
 - `Validate()` rejects `trailers.prefix: "NoTrailingDash"`
 - Error messages include file path and field name
 - Table-driven tests, stdlib `testing` only
@@ -320,7 +305,6 @@ func ParseDuration(s string) (time.Duration, error)
 | `TestMergeMapMerge`         | Map merge semantics             | Keys merge, higher-priority wins on conflict          |
 | `TestStrictUnknownKey`      | Strict YAML parsing             | Unknown key returns error with file path              |
 | `TestValidateMode`          | Enum validation                 | Invalid mode rejected, valid modes accepted           |
-| `TestValidateTiers`         | Enum validation                 | Invalid tier rejected, valid tiers accepted           |
 | `TestValidateCustomPattern` | Regex compilation               | Invalid regex rejected with pattern name in error     |
 | `TestValidateRetention`     | Duration format                 | Valid durations accepted, invalid rejected            |
 | `TestValidateVersion`       | Required field                  | version: 0 rejected                                   |

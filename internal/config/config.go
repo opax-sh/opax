@@ -17,17 +17,16 @@ import (
 
 // OpaxConfig is the top-level configuration for Opax.
 type OpaxConfig struct {
-	Privacy  PrivacyConfig  `yaml:"privacy"`
+	Hygiene  HygieneConfig  `yaml:"hygiene"`
 	Storage  StorageConfig  `yaml:"storage"`
 	Capture  CaptureConfig  `yaml:"capture"`
 	Trailers TrailersConfig `yaml:"trailers"`
 }
 
-// PrivacyConfig controls scrubbing behavior and default privacy tiers.
-type PrivacyConfig struct {
-	Version      int                `yaml:"version"`
-	Scrubbing    ScrubbingConfig    `yaml:"scrubbing"`
-	DefaultTiers DefaultTiersConfig `yaml:"default_tiers"`
+// HygieneConfig controls secret detection and scrubbing before storage.
+type HygieneConfig struct {
+	Version   int             `yaml:"version"`
+	Scrubbing ScrubbingConfig `yaml:"scrubbing"`
 }
 
 // ScrubbingConfig controls how secrets are detected and handled.
@@ -52,13 +51,6 @@ type EntropyConfig struct {
 	Enabled   bool    `yaml:"enabled"`
 	Threshold float64 `yaml:"threshold"`
 	MinLength int     `yaml:"min_length"`
-}
-
-// DefaultTiersConfig sets the default privacy tier for each record type.
-type DefaultTiersConfig struct {
-	Session  types.PrivacyTier `yaml:"session"`
-	Workflow types.PrivacyTier `yaml:"workflow"`
-	Action   types.PrivacyTier `yaml:"action"`
 }
 
 // StorageConfig controls retention and storage behavior.
@@ -125,25 +117,15 @@ func ParseDuration(s string) (time.Duration, error) {
 // Validate checks an OpaxConfig for invalid values.
 // Returns the first error found.
 func Validate(cfg *OpaxConfig) error {
-	if cfg.Privacy.Version <= 0 {
-		return fmt.Errorf("config: validate: privacy.version: must be > 0")
+	if cfg.Hygiene.Version <= 0 {
+		return fmt.Errorf("config: validate: hygiene.version: must be > 0")
 	}
 
-	if !cfg.Privacy.Scrubbing.Mode.Valid() {
-		return fmt.Errorf("config: validate: scrubbing.mode: invalid value %q", cfg.Privacy.Scrubbing.Mode)
+	if !cfg.Hygiene.Scrubbing.Mode.Valid() {
+		return fmt.Errorf("config: validate: scrubbing.mode: invalid value %q", cfg.Hygiene.Scrubbing.Mode)
 	}
 
-	if !cfg.Privacy.DefaultTiers.Session.Valid() {
-		return fmt.Errorf("config: validate: default_tiers.session: invalid value %q", cfg.Privacy.DefaultTiers.Session)
-	}
-	if !cfg.Privacy.DefaultTiers.Workflow.Valid() {
-		return fmt.Errorf("config: validate: default_tiers.workflow: invalid value %q", cfg.Privacy.DefaultTiers.Workflow)
-	}
-	if !cfg.Privacy.DefaultTiers.Action.Valid() {
-		return fmt.Errorf("config: validate: default_tiers.action: invalid value %q", cfg.Privacy.DefaultTiers.Action)
-	}
-
-	for _, p := range cfg.Privacy.Scrubbing.CustomPatterns {
+	for _, p := range cfg.Hygiene.Scrubbing.CustomPatterns {
 		if p.Name == "" {
 			return fmt.Errorf("config: validate: custom_patterns: pattern name must be non-empty")
 		}
@@ -152,7 +134,7 @@ func Validate(cfg *OpaxConfig) error {
 		}
 	}
 
-	for i, entry := range cfg.Privacy.Scrubbing.Allowlist {
+	for i, entry := range cfg.Hygiene.Scrubbing.Allowlist {
 		if strings.ContainsAny(entry, "*+?[(\\") {
 			if _, err := regexp.Compile(entry); err != nil {
 				return fmt.Errorf("config: validate: scrubbing.allowlist[%d]: %w", i, err)
@@ -160,11 +142,11 @@ func Validate(cfg *OpaxConfig) error {
 		}
 	}
 
-	if cfg.Privacy.Scrubbing.Entropy.Enabled {
-		if cfg.Privacy.Scrubbing.Entropy.Threshold <= 0 {
+	if cfg.Hygiene.Scrubbing.Entropy.Enabled {
+		if cfg.Hygiene.Scrubbing.Entropy.Threshold <= 0 {
 			return fmt.Errorf("config: validate: scrubbing.entropy.threshold: must be > 0 when enabled")
 		}
-		if cfg.Privacy.Scrubbing.Entropy.MinLength <= 0 {
+		if cfg.Hygiene.Scrubbing.Entropy.MinLength <= 0 {
 			return fmt.Errorf("config: validate: scrubbing.entropy.min_length: must be > 0 when enabled")
 		}
 	}
@@ -192,7 +174,7 @@ func Validate(cfg *OpaxConfig) error {
 // These values apply when no config file exists or when a field is omitted.
 func Default() *OpaxConfig {
 	return &OpaxConfig{
-		Privacy: PrivacyConfig{
+		Hygiene: HygieneConfig{
 			Version: 1,
 			Scrubbing: ScrubbingConfig{
 				Mode: types.ScrubRedact,
@@ -212,11 +194,6 @@ func Default() *OpaxConfig {
 					MinLength: 20,
 				},
 				Allowlist: []string{},
-			},
-			DefaultTiers: DefaultTiersConfig{
-				Session:  types.TierTeam,
-				Workflow: types.TierTeam,
-				Action:   types.TierTeam,
 			},
 		},
 		Storage: StorageConfig{
@@ -290,16 +267,15 @@ func readConfigFile(path string) (*rawConfig, error) {
 // rawConfig mirrors OpaxConfig but uses pointer fields to distinguish
 // "not set" from zero values during YAML decode.
 type rawConfig struct {
-	Privacy  *rawPrivacy  `yaml:"privacy"`
+	Hygiene  *rawHygiene  `yaml:"hygiene"`
 	Storage  *rawStorage  `yaml:"storage"`
 	Capture  *rawCapture  `yaml:"capture"`
 	Trailers *rawTrailers `yaml:"trailers"`
 }
 
-type rawPrivacy struct {
-	Version      *int             `yaml:"version"`
-	Scrubbing    *rawScrubbing    `yaml:"scrubbing"`
-	DefaultTiers *rawDefaultTiers `yaml:"default_tiers"`
+type rawHygiene struct {
+	Version   *int          `yaml:"version"`
+	Scrubbing *rawScrubbing `yaml:"scrubbing"`
 }
 
 type rawScrubbing struct {
@@ -315,12 +291,6 @@ type rawEntropy struct {
 	Enabled   *bool    `yaml:"enabled"`
 	Threshold *float64 `yaml:"threshold"`
 	MinLength *int     `yaml:"min_length"`
-}
-
-type rawDefaultTiers struct {
-	Session  *types.PrivacyTier `yaml:"session"`
-	Workflow *types.PrivacyTier `yaml:"workflow"`
-	Action   *types.PrivacyTier `yaml:"action"`
 }
 
 type rawStorage struct {
@@ -367,49 +337,37 @@ func mergeRaw(base *OpaxConfig, raw *rawConfig) *OpaxConfig {
 		return &result
 	}
 
-	if raw.Privacy != nil {
-		if raw.Privacy.Version != nil {
-			result.Privacy.Version = *raw.Privacy.Version
+	if raw.Hygiene != nil {
+		if raw.Hygiene.Version != nil {
+			result.Hygiene.Version = *raw.Hygiene.Version
 		}
-		if raw.Privacy.Scrubbing != nil {
-			s := raw.Privacy.Scrubbing
+		if raw.Hygiene.Scrubbing != nil {
+			s := raw.Hygiene.Scrubbing
 			if s.Mode != nil {
-				result.Privacy.Scrubbing.Mode = *s.Mode
+				result.Hygiene.Scrubbing.Mode = *s.Mode
 			}
 			if s.BuiltinDetectors != nil {
-				result.Privacy.Scrubbing.BuiltinDetectors = s.BuiltinDetectors
+				result.Hygiene.Scrubbing.BuiltinDetectors = s.BuiltinDetectors
 			}
 			if s.CustomPatterns != nil {
-				result.Privacy.Scrubbing.CustomPatterns = s.CustomPatterns
+				result.Hygiene.Scrubbing.CustomPatterns = s.CustomPatterns
 			}
 			if s.SourceFiles != nil {
-				result.Privacy.Scrubbing.SourceFiles = s.SourceFiles
+				result.Hygiene.Scrubbing.SourceFiles = s.SourceFiles
 			}
 			if s.Entropy != nil {
 				if s.Entropy.Enabled != nil {
-					result.Privacy.Scrubbing.Entropy.Enabled = *s.Entropy.Enabled
+					result.Hygiene.Scrubbing.Entropy.Enabled = *s.Entropy.Enabled
 				}
 				if s.Entropy.Threshold != nil {
-					result.Privacy.Scrubbing.Entropy.Threshold = *s.Entropy.Threshold
+					result.Hygiene.Scrubbing.Entropy.Threshold = *s.Entropy.Threshold
 				}
 				if s.Entropy.MinLength != nil {
-					result.Privacy.Scrubbing.Entropy.MinLength = *s.Entropy.MinLength
+					result.Hygiene.Scrubbing.Entropy.MinLength = *s.Entropy.MinLength
 				}
 			}
 			if s.Allowlist != nil {
-				result.Privacy.Scrubbing.Allowlist = s.Allowlist
-			}
-		}
-		if raw.Privacy.DefaultTiers != nil {
-			dt := raw.Privacy.DefaultTiers
-			if dt.Session != nil {
-				result.Privacy.DefaultTiers.Session = *dt.Session
-			}
-			if dt.Workflow != nil {
-				result.Privacy.DefaultTiers.Workflow = *dt.Workflow
-			}
-			if dt.Action != nil {
-				result.Privacy.DefaultTiers.Action = *dt.Action
+				result.Hygiene.Scrubbing.Allowlist = s.Allowlist
 			}
 		}
 	}

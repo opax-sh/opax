@@ -14,66 +14,55 @@ import (
 func TestDefault(t *testing.T) {
 	cfg := config.Default()
 
-	// Privacy section
-	if cfg.Privacy.Version != 1 {
-		t.Errorf("Privacy.Version = %d, want 1", cfg.Privacy.Version)
+	// Hygiene section
+	if cfg.Hygiene.Version != 1 {
+		t.Errorf("Hygiene.Version = %d, want 1", cfg.Hygiene.Version)
 	}
-	if cfg.Privacy.Scrubbing.Mode != types.ScrubRedact {
-		t.Errorf("Scrubbing.Mode = %q, want %q", cfg.Privacy.Scrubbing.Mode, types.ScrubRedact)
+	if cfg.Hygiene.Scrubbing.Mode != types.ScrubRedact {
+		t.Errorf("Scrubbing.Mode = %q, want %q", cfg.Hygiene.Scrubbing.Mode, types.ScrubRedact)
 	}
 
 	wantDetectors := []string{
 		"aws_keys", "github_tokens", "jwt_tokens",
 		"private_keys", "connection_strings", "generic_api_keys",
 	}
-	if len(cfg.Privacy.Scrubbing.BuiltinDetectors) != len(wantDetectors) {
+	if len(cfg.Hygiene.Scrubbing.BuiltinDetectors) != len(wantDetectors) {
 		t.Fatalf("BuiltinDetectors len = %d, want %d",
-			len(cfg.Privacy.Scrubbing.BuiltinDetectors), len(wantDetectors))
+			len(cfg.Hygiene.Scrubbing.BuiltinDetectors), len(wantDetectors))
 	}
 	for i, d := range wantDetectors {
-		if cfg.Privacy.Scrubbing.BuiltinDetectors[i] != d {
-			t.Errorf("BuiltinDetectors[%d] = %q, want %q", i, cfg.Privacy.Scrubbing.BuiltinDetectors[i], d)
+		if cfg.Hygiene.Scrubbing.BuiltinDetectors[i] != d {
+			t.Errorf("BuiltinDetectors[%d] = %q, want %q", i, cfg.Hygiene.Scrubbing.BuiltinDetectors[i], d)
 		}
 	}
 
-	if len(cfg.Privacy.Scrubbing.CustomPatterns) != 0 {
-		t.Errorf("CustomPatterns len = %d, want 0", len(cfg.Privacy.Scrubbing.CustomPatterns))
+	if len(cfg.Hygiene.Scrubbing.CustomPatterns) != 0 {
+		t.Errorf("CustomPatterns len = %d, want 0", len(cfg.Hygiene.Scrubbing.CustomPatterns))
 	}
 
 	wantSourceFiles := []string{".env", ".env.local"}
-	if len(cfg.Privacy.Scrubbing.SourceFiles) != len(wantSourceFiles) {
+	if len(cfg.Hygiene.Scrubbing.SourceFiles) != len(wantSourceFiles) {
 		t.Fatalf("SourceFiles len = %d, want %d",
-			len(cfg.Privacy.Scrubbing.SourceFiles), len(wantSourceFiles))
+			len(cfg.Hygiene.Scrubbing.SourceFiles), len(wantSourceFiles))
 	}
 	for i, f := range wantSourceFiles {
-		if cfg.Privacy.Scrubbing.SourceFiles[i] != f {
-			t.Errorf("SourceFiles[%d] = %q, want %q", i, cfg.Privacy.Scrubbing.SourceFiles[i], f)
+		if cfg.Hygiene.Scrubbing.SourceFiles[i] != f {
+			t.Errorf("SourceFiles[%d] = %q, want %q", i, cfg.Hygiene.Scrubbing.SourceFiles[i], f)
 		}
 	}
 
-	if !cfg.Privacy.Scrubbing.Entropy.Enabled {
+	if !cfg.Hygiene.Scrubbing.Entropy.Enabled {
 		t.Error("Entropy.Enabled = false, want true")
 	}
-	if cfg.Privacy.Scrubbing.Entropy.Threshold != 4.5 {
-		t.Errorf("Entropy.Threshold = %f, want 4.5", cfg.Privacy.Scrubbing.Entropy.Threshold)
+	if cfg.Hygiene.Scrubbing.Entropy.Threshold != 4.5 {
+		t.Errorf("Entropy.Threshold = %f, want 4.5", cfg.Hygiene.Scrubbing.Entropy.Threshold)
 	}
-	if cfg.Privacy.Scrubbing.Entropy.MinLength != 20 {
-		t.Errorf("Entropy.MinLength = %d, want 20", cfg.Privacy.Scrubbing.Entropy.MinLength)
-	}
-
-	if len(cfg.Privacy.Scrubbing.Allowlist) != 0 {
-		t.Errorf("Allowlist len = %d, want 0", len(cfg.Privacy.Scrubbing.Allowlist))
+	if cfg.Hygiene.Scrubbing.Entropy.MinLength != 20 {
+		t.Errorf("Entropy.MinLength = %d, want 20", cfg.Hygiene.Scrubbing.Entropy.MinLength)
 	}
 
-	// Default tiers
-	if cfg.Privacy.DefaultTiers.Session != types.TierTeam {
-		t.Errorf("DefaultTiers.Session = %q, want %q", cfg.Privacy.DefaultTiers.Session, types.TierTeam)
-	}
-	if cfg.Privacy.DefaultTiers.Workflow != types.TierTeam {
-		t.Errorf("DefaultTiers.Workflow = %q, want %q", cfg.Privacy.DefaultTiers.Workflow, types.TierTeam)
-	}
-	if cfg.Privacy.DefaultTiers.Action != types.TierTeam {
-		t.Errorf("DefaultTiers.Action = %q, want %q", cfg.Privacy.DefaultTiers.Action, types.TierTeam)
+	if len(cfg.Hygiene.Scrubbing.Allowlist) != 0 {
+		t.Errorf("Allowlist len = %d, want 0", len(cfg.Hygiene.Scrubbing.Allowlist))
 	}
 
 	// Storage section
@@ -165,7 +154,7 @@ func TestValidateMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Default()
-			cfg.Privacy.Scrubbing.Mode = tt.mode
+			cfg.Hygiene.Scrubbing.Mode = tt.mode
 			err := config.Validate(cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() mode=%q error = %v, wantErr %v", tt.mode, err, tt.wantErr)
@@ -177,51 +166,15 @@ func TestValidateMode(t *testing.T) {
 	}
 }
 
-func TestValidateTiers(t *testing.T) {
-	tests := []struct {
-		name    string
-		field   string
-		tier    types.PrivacyTier
-		wantErr bool
-	}{
-		{"session-public", "session", types.TierPublic, false},
-		{"session-team", "session", types.TierTeam, false},
-		{"session-private", "session", types.TierPrivate, false},
-		{"session-invalid", "session", types.PrivacyTier("nope"), true},
-		{"workflow-invalid", "workflow", types.PrivacyTier("nope"), true},
-		{"action-invalid", "action", types.PrivacyTier("nope"), true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.Default()
-			switch tt.field {
-			case "session":
-				cfg.Privacy.DefaultTiers.Session = tt.tier
-			case "workflow":
-				cfg.Privacy.DefaultTiers.Workflow = tt.tier
-			case "action":
-				cfg.Privacy.DefaultTiers.Action = tt.tier
-			}
-			err := config.Validate(cfg)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() %s=%q error = %v, wantErr %v", tt.field, tt.tier, err, tt.wantErr)
-			}
-			if tt.wantErr && err != nil && !strings.Contains(err.Error(), "default_tiers."+tt.field) {
-				t.Errorf("error %q should mention default_tiers.%s", err, tt.field)
-			}
-		})
-	}
-}
-
 func TestValidateVersion(t *testing.T) {
 	cfg := config.Default()
-	cfg.Privacy.Version = 0
+	cfg.Hygiene.Version = 0
 	err := config.Validate(cfg)
 	if err == nil {
 		t.Error("Validate() version=0 should error")
 	}
-	if err != nil && !strings.Contains(err.Error(), "privacy.version") {
-		t.Errorf("error %q should mention privacy.version", err)
+	if err != nil && !strings.Contains(err.Error(), "hygiene.version") {
+		t.Errorf("error %q should mention hygiene.version", err)
 	}
 }
 
@@ -250,7 +203,7 @@ func TestValidateCustomPattern(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Default()
-			cfg.Privacy.Scrubbing.CustomPatterns = []config.PatternConfig{tt.pattern}
+			cfg.Hygiene.Scrubbing.CustomPatterns = []config.PatternConfig{tt.pattern}
 			err := config.Validate(cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -276,7 +229,7 @@ func TestValidateAllowlist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Default()
-			cfg.Privacy.Scrubbing.Allowlist = tt.allowlist
+			cfg.Hygiene.Scrubbing.Allowlist = tt.allowlist
 			err := config.Validate(cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() allowlist=%v error = %v, wantErr %v", tt.allowlist, err, tt.wantErr)
@@ -350,9 +303,9 @@ func TestValidateEntropy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := config.Default()
-			cfg.Privacy.Scrubbing.Entropy.Enabled = tt.enabled
-			cfg.Privacy.Scrubbing.Entropy.Threshold = tt.threshold
-			cfg.Privacy.Scrubbing.Entropy.MinLength = tt.minLength
+			cfg.Hygiene.Scrubbing.Entropy.Enabled = tt.enabled
+			cfg.Hygiene.Scrubbing.Entropy.Threshold = tt.threshold
+			cfg.Hygiene.Scrubbing.Entropy.MinLength = tt.minLength
 			err := config.Validate(cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -390,46 +343,46 @@ func TestLoadNoFiles(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	want := config.Default()
-	if cfg.Privacy.Version != want.Privacy.Version {
-		t.Errorf("Version = %d, want %d", cfg.Privacy.Version, want.Privacy.Version)
+	if cfg.Hygiene.Version != want.Hygiene.Version {
+		t.Errorf("Version = %d, want %d", cfg.Hygiene.Version, want.Hygiene.Version)
 	}
-	if cfg.Privacy.Scrubbing.Mode != want.Privacy.Scrubbing.Mode {
-		t.Errorf("Mode = %q, want %q", cfg.Privacy.Scrubbing.Mode, want.Privacy.Scrubbing.Mode)
+	if cfg.Hygiene.Scrubbing.Mode != want.Hygiene.Scrubbing.Mode {
+		t.Errorf("Mode = %q, want %q", cfg.Hygiene.Scrubbing.Mode, want.Hygiene.Scrubbing.Mode)
 	}
 }
 
 func TestLoadTeamOnly(t *testing.T) {
 	dir := t.TempDir()
-	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n")
+	writeTeamConfig(t, dir, "hygiene:\n  scrubbing:\n    mode: reject\n")
 
 	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Privacy.Scrubbing.Mode != types.ScrubReject {
-		t.Errorf("Mode = %q, want %q", cfg.Privacy.Scrubbing.Mode, types.ScrubReject)
+	if cfg.Hygiene.Scrubbing.Mode != types.ScrubReject {
+		t.Errorf("Mode = %q, want %q", cfg.Hygiene.Scrubbing.Mode, types.ScrubReject)
 	}
-	if cfg.Privacy.Version != 1 {
-		t.Errorf("Version = %d, want 1 (default preserved)", cfg.Privacy.Version)
+	if cfg.Hygiene.Version != 1 {
+		t.Errorf("Version = %d, want 1 (default preserved)", cfg.Hygiene.Version)
 	}
 }
 
 func TestLoadTeamAndPersonal(t *testing.T) {
 	dir := t.TempDir()
-	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n    builtin_detectors:\n      - aws_keys\n      - github_tokens\n")
+	writeTeamConfig(t, dir, "hygiene:\n  scrubbing:\n    mode: reject\n    builtin_detectors:\n      - aws_keys\n      - github_tokens\n")
 
 	personalDir := t.TempDir()
-	writePersonalConfig(t, personalDir, "privacy:\n  scrubbing:\n    mode: warn\n    builtin_detectors:\n      - aws_keys\n")
+	writePersonalConfig(t, personalDir, "hygiene:\n  scrubbing:\n    mode: warn\n    builtin_detectors:\n      - aws_keys\n")
 
 	cfg, err := config.LoadWithPersonalDir(dir, personalDir)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Privacy.Scrubbing.Mode != types.ScrubWarn {
-		t.Errorf("Mode = %q, want %q (personal override)", cfg.Privacy.Scrubbing.Mode, types.ScrubWarn)
+	if cfg.Hygiene.Scrubbing.Mode != types.ScrubWarn {
+		t.Errorf("Mode = %q, want %q (personal override)", cfg.Hygiene.Scrubbing.Mode, types.ScrubWarn)
 	}
-	if len(cfg.Privacy.Scrubbing.BuiltinDetectors) != 1 {
-		t.Fatalf("BuiltinDetectors len = %d, want 1 (slice replace)", len(cfg.Privacy.Scrubbing.BuiltinDetectors))
+	if len(cfg.Hygiene.Scrubbing.BuiltinDetectors) != 1 {
+		t.Fatalf("BuiltinDetectors len = %d, want 1 (slice replace)", len(cfg.Hygiene.Scrubbing.BuiltinDetectors))
 	}
 }
 
@@ -437,33 +390,33 @@ func TestLoadTeamAndPersonal(t *testing.T) {
 
 func TestMergeScalarOverride(t *testing.T) {
 	dir := t.TempDir()
-	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n")
+	writeTeamConfig(t, dir, "hygiene:\n  scrubbing:\n    mode: reject\n")
 
 	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Privacy.Scrubbing.Mode != types.ScrubReject {
-		t.Errorf("Mode = %q, want %q", cfg.Privacy.Scrubbing.Mode, types.ScrubReject)
+	if cfg.Hygiene.Scrubbing.Mode != types.ScrubReject {
+		t.Errorf("Mode = %q, want %q", cfg.Hygiene.Scrubbing.Mode, types.ScrubReject)
 	}
-	if cfg.Privacy.Version != 1 {
-		t.Errorf("Version = %d, want 1 (default)", cfg.Privacy.Version)
+	if cfg.Hygiene.Version != 1 {
+		t.Errorf("Version = %d, want 1 (default)", cfg.Hygiene.Version)
 	}
 }
 
 func TestMergeSliceReplace(t *testing.T) {
 	dir := t.TempDir()
-	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    builtin_detectors:\n      - aws_keys\n")
+	writeTeamConfig(t, dir, "hygiene:\n  scrubbing:\n    builtin_detectors:\n      - aws_keys\n")
 
 	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if len(cfg.Privacy.Scrubbing.BuiltinDetectors) != 1 {
-		t.Fatalf("BuiltinDetectors len = %d, want 1", len(cfg.Privacy.Scrubbing.BuiltinDetectors))
+	if len(cfg.Hygiene.Scrubbing.BuiltinDetectors) != 1 {
+		t.Fatalf("BuiltinDetectors len = %d, want 1", len(cfg.Hygiene.Scrubbing.BuiltinDetectors))
 	}
-	if cfg.Privacy.Scrubbing.BuiltinDetectors[0] != "aws_keys" {
-		t.Errorf("BuiltinDetectors[0] = %q, want %q", cfg.Privacy.Scrubbing.BuiltinDetectors[0], "aws_keys")
+	if cfg.Hygiene.Scrubbing.BuiltinDetectors[0] != "aws_keys" {
+		t.Errorf("BuiltinDetectors[0] = %q, want %q", cfg.Hygiene.Scrubbing.BuiltinDetectors[0], "aws_keys")
 	}
 }
 
@@ -537,8 +490,8 @@ func TestEmptyConfigFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if cfg.Privacy.Version != 1 {
-				t.Errorf("Version = %d, want 1 (default)", cfg.Privacy.Version)
+			if cfg.Hygiene.Version != 1 {
+				t.Errorf("Version = %d, want 1 (default)", cfg.Hygiene.Version)
 			}
 		})
 	}
@@ -546,14 +499,14 @@ func TestEmptyConfigFile(t *testing.T) {
 
 func TestPartialConfig(t *testing.T) {
 	dir := t.TempDir()
-	writeTeamConfig(t, dir, "privacy:\n  scrubbing:\n    mode: reject\n")
+	writeTeamConfig(t, dir, "hygiene:\n  scrubbing:\n    mode: reject\n")
 
 	cfg, err := config.LoadWithPersonalDir(dir, t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Privacy.Scrubbing.Mode != types.ScrubReject {
-		t.Errorf("Mode = %q, want reject", cfg.Privacy.Scrubbing.Mode)
+	if cfg.Hygiene.Scrubbing.Mode != types.ScrubReject {
+		t.Errorf("Mode = %q, want reject", cfg.Hygiene.Scrubbing.Mode)
 	}
 	if !cfg.Trailers.Enabled {
 		t.Error("Trailers.Enabled should be default true")
@@ -589,7 +542,7 @@ func TestLoadUnreadableFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(teamDir, "config.yaml")
-	if err := os.WriteFile(path, []byte("privacy:\n  version: 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("hygiene:\n  version: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(path, 0o000); err != nil {

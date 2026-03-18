@@ -58,7 +58,7 @@ This applies to agents too. If an agent is asked to implement a feature, it shou
 
 These are non-negotiable. Violating any of these is a bug.
 
-1. **Scrub before encrypt** — secrets must never be stored, not even encrypted. Privacy pipeline runs before any write
+1. **Scrub before encrypt** — secrets must never be stored, not even encrypted. Hygiene pipeline runs before any write
 2. **Two-tier storage** — metadata on git (`opax/v1` branch), bulk content in CAS (`.git/opax/content/`). 4 KB threshold: inline < 4 KB, CAS >= 4 KB
 3. **Single orphan branch** — all Opax data lives on `opax/v1`, sharded directory layout. Never create per-record branches
 4. **Commit-anchored** — the primary question is "what context produced this commit?". Saves anchor to commits, sessions hang off saves

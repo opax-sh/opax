@@ -25,8 +25,8 @@ opax/
 │   │   │   └── claudecode.go    # Claude Code JSONL session reader
 │   │   └── codex/
 │   │       └── codex.go         # OpenAI Codex session reader
-│   ├── privacy/
-│   │   └── privacy.go           # Secret scrubbing pipeline
+│   ├── hygiene/
+│   │   └── hygiene.go           # Secret scrubbing pipeline
 │   ├── mcp/
 │   │   └── mcp.go               # MCP server (stdio transport)
 │   └── plugin/
@@ -36,7 +36,7 @@ opax/
 │       └── memory.go            # Built-in memory plugin (cross-platform context)
 ├── docs/
 │   ├── architecture/            # Developer-facing architecture docs (you are here)
-│   ├── strategy/                # Product strategy, data spec, storage spec, privacy, compliance
+│   ├── strategy/                # Product strategy, data spec, storage spec, hygiene, compliance
 │   ├── adrs/                    # Architecture Decision Records
 │   ├── plans/                   # Implementation plans
 │   ├── prds/                    # Product requirements
@@ -98,7 +98,7 @@ A persistent `--json` flag is registered on the root command and inherited by al
 
 **Key dependencies:** `go-git` (plumbing-level git operations)
 
-**Boundaries:** Never touches the working tree. Never checks out branches. Uses git plumbing commands (`hash-object`, `mktree`, `commit-tree`, `update-ref`) or their go-git equivalents. Does not know about SQLite, capture, or privacy — it only moves git objects.
+**Boundaries:** Never touches the working tree. Never checks out branches. Uses git plumbing commands (`hash-object`, `mktree`, `commit-tree`, `update-ref`) or their go-git equivalents. Does not know about SQLite, capture, or hygiene — it only moves git objects.
 
 ### `internal/store` — SQLite Materialization
 
@@ -120,7 +120,7 @@ A persistent `--json` flag is registered on the root command and inherited by al
 
 **Responsibility:** Platform-agnostic coordinator for passive session capture. Detects agent sessions, delegates to platform-specific readers, normalizes output into Opax's common transcript format.
 
-**Boundaries:** Does not write to git directly — produces normalized data that the CLI or hooks pipe through the privacy pipeline and then into `internal/git` and `internal/cas`.
+**Boundaries:** Does not write to git directly — produces normalized data that the CLI or hooks pipe through the hygiene pipeline and then into `internal/git` and `internal/cas`.
 
 #### `capture/claudecode` — Claude Code Reader
 
@@ -132,13 +132,13 @@ A persistent `--json` flag is registered on the root command and inherited by al
 
 **Adding a new capture source:** Create a new sub-package under `internal/capture/` (e.g., `capture/cursor/`). Implement the same reader interface. Register it in the coordinator.
 
-### `internal/privacy` — Secret Scrubbing
+### `internal/hygiene` — Secret Scrubbing
 
 **Responsibility:** The secret scrubbing pipeline. Detects and removes secrets (API keys, tokens, credentials) from content before storage.
 
 **Key dependencies:** stdlib (pattern matching, regex)
 
-**Boundaries:** Pipeline order is non-negotiable: **scrub before encrypt**. Secrets must never be stored even in encrypted form. Phase 0 implements scrubbing only. The `PrivacyMetadata` type ships now to scaffold Phase 1 encryption without rearchitecting.
+**Boundaries:** Pipeline order is non-negotiable: **scrub before encrypt**. Secrets must never be stored even in encrypted form. Phase 0 implements scrubbing only. Record `hygiene` metadata captures what was applied at write time.
 
 ### `internal/mcp` — MCP Server
 
@@ -235,7 +235,7 @@ Every CLI command supports `--json`. This is the SDK contract for agent consumpt
 | `internal/store` | `modernc.org/sqlite` (planned) | Pure-Go SQLite — no CGo, no native dependencies, single-binary friendly |
 | `internal/mcp` | Official MCP Go SDK (planned) | MCP server with stdio transport |
 | `internal/cas` | stdlib only | SHA-256 hashing, file I/O |
-| `internal/privacy` | stdlib only | Pattern matching, regex |
+| `internal/hygiene` | stdlib only | Pattern matching, regex |
 | `internal/capture` | stdlib only | File I/O, JSON parsing |
 | `internal/plugin` | stdlib only | JSON-RPC, subprocess management |
 | `plugins/memory` | (uses internal packages) | No direct external dependencies |
@@ -267,7 +267,7 @@ The binary is self-contained — zero runtime dependencies. No Docker, no extern
 Agent session ends
     → Passive capture reads session files from disk
     → Platform reader (claudecode/codex) normalizes to common format
-    → Privacy pipeline scrubs secrets (non-negotiable: scrub before encrypt)
+    → Hygiene pipeline scrubs secrets (non-negotiable: scrub before encrypt)
     → CAS stores bulk content, returns SHA-256 hash
     → Git plumbing writes metadata to opax/v1 branch
     → SQLite materializes new records (incremental sync)

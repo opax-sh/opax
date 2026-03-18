@@ -107,11 +107,10 @@ sessions/a3/ses_01JQXYZ.../
   "lines_removed": 45,
   "files_touched": ["src/auth/pkce.ts", "src/auth/oauth.ts"],
   "content_hash": "e5f6g7h8...",
-  "privacy": {
-    "tier": "team",
+  "hygiene": {
     "scrubbed": true,
     "scrub_version": "1.0.0",
-    "encrypted": false
+    "scrub_detectors": ["aws_keys"]
   },
   "tags": ["auth", "feature"]
 }
@@ -147,11 +146,10 @@ saves/7f/sav_01JQXYZ.../
   "created_at": "2026-03-13T11:15:00Z",
   "files_in_commit": ["src/auth/pkce.ts", "src/auth/oauth.ts"],
   "content_hash": "i9j0k1l2...",
-  "privacy": {
-    "tier": "team",
+  "hygiene": {
     "scrubbed": true,
     "scrub_version": "1.0.0",
-    "encrypted": false
+    "scrub_detectors": ["aws_keys"]
   }
 }
 ```
@@ -277,10 +275,9 @@ CREATE TABLE opax_sessions (
   tags TEXT,  -- JSON array
   summary TEXT,  -- session summary, materialized from summary.md
   content_hash TEXT,  -- SHA-256 hash referencing CAS
-  privacy_tier TEXT DEFAULT 'team',
-  privacy_scrubbed BOOLEAN DEFAULT FALSE,
-  privacy_scrub_version TEXT,
-  privacy_encrypted BOOLEAN DEFAULT FALSE,
+  hygiene_scrubbed BOOLEAN DEFAULT FALSE,
+  hygiene_scrub_version TEXT,
+  hygiene_scrub_detectors TEXT,  -- JSON array of detector names
   git_branch TEXT NOT NULL DEFAULT 'opax/v1',
   git_commit TEXT NOT NULL,
   archive_location TEXT  -- NULL = hot, remote URL = warm/cold
@@ -301,10 +298,9 @@ CREATE TABLE opax_saves (
   sessions TEXT,  -- JSON array of {id, attribution} objects
   branch TEXT,
   content_hash TEXT,
-  privacy_tier TEXT DEFAULT 'team',
-  privacy_scrubbed BOOLEAN DEFAULT FALSE,
-  privacy_scrub_version TEXT,
-  privacy_encrypted BOOLEAN DEFAULT FALSE,
+  hygiene_scrubbed BOOLEAN DEFAULT FALSE,
+  hygiene_scrub_version TEXT,
+  hygiene_scrub_detectors TEXT,  -- JSON array of detector names
   git_commit TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
@@ -393,7 +389,7 @@ Files are sharded by the first two characters of the SHA-256 hash, mirroring git
 
 ### Write Path
 
-1. Content is scrubbed by the privacy pipeline
+1. Content is scrubbed by the hygiene pipeline
 2. SHA-256 hash is computed over the scrubbed content
 3. Content is written to `.git/opax/content/{hash[0:2]}/{hash[2:]}`
 4. The raw hex hash is recorded in the metadata file on the `opax/v1` branch as `content_hash` (no algorithm prefix — always SHA-256)

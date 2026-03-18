@@ -23,7 +23,7 @@ E0: Foundation
  │
  E1: Git Plumbing
  ├── E2: Content-Addressed Storage
- │    └── E3: Privacy Pipeline
+ │    └── E3: Hygiene Pipeline
  │         └── E4: Integrated Write Path
  │              ├── E5: SQLite Materialization
  │              │    ├── E6: Search & Query ──── E9: CLI Integration
@@ -47,8 +47,8 @@ E0: Foundation
 | #    | Feature              | Description                                                                                                                                                                                                                |
 | ---- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | E0.1 | Add dependencies     | go-git, modernc.org/sqlite, oklog/ulid, yaml.v3, MCP Go SDK                                                                                                                                                                |
-| E0.2 | Core domain types    | `internal/types/` — record ID types (ses_, sav_), PrivacyMetadata, SessionMetadata (includes files_touched), SaveMetadata (sessions array with attribution), NoteContent, enums (AgentPlatform, PrivacyTier, ScrubMode), ULID generation helper. Plugin ID prefixes (wrk_, act_) registered at plugin load |
-| E0.3 | Configuration system | `internal/config/` — OpaxConfig struct (privacy, storage, capture, trailers), single `config.yaml` with hierarchy (SDK defaults → team `.opax/config.yaml` → personal `~/.config/opax/config.yaml`), strict validation |
+| E0.2 | Core domain types    | `internal/types/` — record ID types (ses_, sav_), Hygiene metadata on Session/Save, SessionMetadata (includes files_touched), SaveMetadata (sessions array with attribution), NoteContent, enums (ScrubMode, AttrReason), ULID generation helper. Plugin ID prefixes (wrk_, act_) registered at plugin load |
+| E0.3 | Configuration system | `internal/config/` — OpaxConfig struct (hygiene, storage, capture, trailers), single `config.yaml` with hierarchy (SDK defaults → team `.opax/config.yaml` → personal `~/.config/opax/config.yaml`), strict validation |
 | E0.4 | File lock utility    | `internal/lock/` — .git/opax.lock for write serialization, advisory locking with timeout, deferred cleanup                                                                                                                 |
 
 
@@ -87,9 +87,9 @@ E0: Foundation
 
 ---
 
-### Epic 3: Privacy Pipeline
+### Epic 3: Hygiene Pipeline
 
-**Goal:** `internal/privacy/` — secret detection and scrubbing on all content before storage.
+**Goal:** `internal/hygiene/` — secret detection and scrubbing on all content before storage.
 
 
 | #    | Feature                | Description                                                                                                                      |
@@ -99,20 +99,20 @@ E0: Foundation
 | E3.3 | Entropy detection      | Shannon entropy calculator, configurable threshold (default 4.5), min length 20                                                  |
 | E3.4 | Source file scanning   | Read .env/.env.local, extract key-value pairs, flag exact matches in content                                                     |
 | E3.5 | Allowlist filtering    | Exact strings + regex patterns, applied after detection before scrubbing                                                         |
-| E3.6 | Scrubbing action       | Redact (default: `[REDACTED:{detector}]`), reject (error), warn (pass through + log). Returns scrubbed content + PrivacyMetadata |
-| E3.7 | Pipeline orchestrator  | `Scrub(content, config) → (scrubbed, PrivacyMetadata, error)`. Order: source scan → pattern match → entropy → allowlist → scrub  |
+| E3.6 | Scrubbing action       | Redact (default: `[REDACTED:{detector}]`), reject (error), warn (pass through + log). Returns scrubbed content + hygiene metadata |
+| E3.7 | Pipeline orchestrator  | `Scrub(content, config) → (scrubbed, Hygiene, error)`. Order: source scan → pattern match → entropy → allowlist → scrub  |
 
 
 ---
 
 ### Epic 4: Integrated Write Path
 
-**Goal:** Compose git + CAS + privacy into a single write operation. The actual Opax storage pipeline.
+**Goal:** Compose git + CAS + hygiene into a single write operation. The actual Opax storage pipeline.
 
 
 | #    | Feature               | Description                                                                                                                                                          |
 | ---- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| E4.1 | Write orchestrator    | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + PrivacyMetadata → serialize → write to orphan branch. All under .git/opax.lock |
+| E4.1 | Write orchestrator    | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + hygiene metadata → serialize → write to orphan branch. All under .git/opax.lock |
 | E4.2 | Session archive write | sessions/{shard}/{id}/ with metadata.json + summary.md. Transcript → CAS (always large). Generate ses_ ULID                                                          |
 | E4.4 | save write            | saves/{shard}/{id}/ with metadata.json. Link to commit hash + session ID. Generate sav_ ULID                                                                         |
 | E4.5 | Commit linkage        | Attach `Opax-Save` trailer (default) or session-link note (fallback when --no-trailers) to commit after save creation. Save fans out to sessions via many-to-many linkage                                                           |
@@ -251,7 +251,7 @@ E0: Foundation
 
 ## Phase 0 Parallelization Opportunities
 
-- **E2 (CAS) ∥ E3 (Privacy)** — independent, both depend only on E0
+- **E2 (CAS) ∥ E3 (Hygiene)** — independent, both depend only on E0
 - **E7 (Capture readers) ∥ E1-E5** — capture readers can be built/tested against sample files while storage layer is built
 - **E10 (MCP) ∥ E11 (Hooks)** — independent, both depend on E8
 
@@ -327,7 +327,7 @@ E0: Foundation
 | `internal/capture/capture.go`               | E7   | Capture coordinator                         |
 | `internal/capture/claudecode/claudecode.go` | E7   | Claude Code JSONL reader                    |
 | `internal/capture/codex/codex.go`           | E7   | Codex session reader                        |
-| `internal/privacy/privacy.go`               | E3   | Secret scrubbing pipeline                   |
+| `internal/hygiene/hygiene.go`               | E3   | Secret scrubbing pipeline                   |
 | `internal/plugin/plugin.go`                 | E8   | Plugin interface + loading                  |
 | `internal/mcp/mcp.go`                       | E10  | MCP server                                  |
 | `plugins/memory/memory.go`                  | E8   | Memory plugin (primary value)               |

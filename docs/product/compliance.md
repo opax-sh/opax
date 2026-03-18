@@ -171,8 +171,8 @@ The PRD's default compaction policy (30d individual / 90d summary) conflicts wit
 When compliance mode is enabled, retention policies are overridden:
 
 ```yaml
-privacy:
-  compliance:
+compliance:
+  mode:
     enabled: true
     frameworks:
       - eu-ai-act
@@ -277,7 +277,7 @@ The August 2026 EU AI Act enforcement creates time-bound urgency that no competi
 
 | Priority | Capability | Phase |
 |---|---|---|
-| P0 | `PrivacyMetadata` type on all artifacts | Phase 0 |
+| P0 | `hygiene` metadata on session/save artifacts | Phase 0 |
 | P0 | Secret scrubbing pipeline | Phase 0 |
 | P0 | Session archive structure (Article 12 foundation) | Phase 0 |
 | P1 | Risk classification metadata | Phase 1 |

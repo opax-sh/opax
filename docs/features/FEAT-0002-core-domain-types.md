@@ -3,13 +3,13 @@
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
 **Status:** Completed
 **Dependencies:** FEAT-0001 (needs `oklog/ulid`)
-**Dependents:** E1 (Git Plumbing), E2 (CAS), E3 (Privacy Pipeline), E4 (Write Path), E5 (SQLite), E7 (Capture), E8 (Memory Plugin) — virtually everything imports `internal/types`
+**Dependents:** E1 (Git Plumbing), E2 (CAS), E3 (Hygiene Pipeline), E4 (Write Path), E5 (SQLite), E7 (Capture), E8 (Memory Plugin) — virtually everything imports `internal/types`
 
 ---
 
 ## Problem
 
-Every downstream package needs shared type definitions for record IDs, metadata structs, privacy classification, and enums. Without a single canonical source, packages would define their own incompatible representations, leading to conversion boilerplate, JSON serialization mismatches, and subtle bugs.
+Every downstream package needs shared type definitions for record IDs, metadata structs, hygiene (scrubbing) metadata, and enums. Without a single canonical source, packages would define their own incompatible representations, leading to conversion boilerplate, JSON serialization mismatches, and subtle bugs.
 
 These types are the contract between the git data layer and the rest of the system. Their JSON serialization must match the schemas defined in data-spec.md exactly: field names, nesting, and omitempty behavior.
 
@@ -124,21 +124,9 @@ func (r *PrefixRegistry) IsRegistered(prefix string) bool
 
 Each enum is a named `string` type with defined constants and a `Valid() bool` method.
 
-#### PrivacyTier
-
-Controls access classification. Values from privacy.md:
-
-
-| Constant      | Value       | Description                        |
-| ------------- | ----------- | ---------------------------------- |
-| `TierPublic`  | `"public"`  | Visible to anyone with repo access |
-| `TierTeam`    | `"team"`    | Visible to team members (default)  |
-| `TierPrivate` | `"private"` | Visible only to the session owner  |
-
-
 #### ScrubMode
 
-Determines how detected secrets are handled. Values from privacy.md:
+Determines how detected secrets are handled. Values from hygiene.md:
 
 
 | Constant      | Value      | Description                                |
@@ -163,22 +151,20 @@ Describes how a session was linked to a save. Values from data-spec.md:
 
 These structs define the canonical Go representation of Opax records. Their JSON serialization must match data-spec.md schemas field-for-field. Struct names are domain nouns — the package qualifier provides context (e.g., `types.Session`, `types.Save`).
 
-#### Privacy
+#### Hygiene
 
-Present on every artifact. Source: privacy.md `PrivacyMetadata` interface.
+Present on session and save artifacts. Source: hygiene.md and data-spec.md.
 
 ```go
-type Privacy struct {
-    Tier           PrivacyTier `json:"tier"`
-    Scrubbed       bool        `json:"scrubbed"`
-    ScrubVersion   string      `json:"scrub_version,omitempty"`
-    ScrubDetectors []string    `json:"scrub_detectors,omitempty"`
+type Hygiene struct {
+    Scrubbed       bool     `json:"scrubbed"`
+    ScrubVersion   string   `json:"scrub_version,omitempty"`
+    ScrubDetectors []string `json:"scrub_detectors,omitempty"`
 }
 ```
 
 **Default values (for new records in Phase 0):**
 
-- `Tier`: `"team"`
 - `Scrubbed`: `false`
 
 #### Session
@@ -200,7 +186,7 @@ type Session struct {
     LinesRemoved    int       `json:"lines_removed,omitempty"`
     FilesTouched    []string  `json:"files_touched,omitempty"`
     ContentHash     string    `json:"content_hash,omitempty"`
-    Privacy         Privacy   `json:"privacy"`
+    Hygiene         Hygiene   `json:"hygiene"`
     Tags            []string  `json:"tags,omitempty"`
 }
 ```
@@ -238,7 +224,7 @@ type Save struct {
     CreatedAt     time.Time     `json:"created_at"`
     FilesInCommit []string      `json:"files_in_commit,omitempty"`
     ContentHash   string        `json:"content_hash,omitempty"`
-    Privacy       Privacy       `json:"privacy"`
+    Hygiene       Hygiene       `json:"hygiene"`
 }
 ```
 
@@ -261,7 +247,7 @@ type Note struct {
 
 ## Edge Cases
 
-- **Zero-value Privacy** — Go zero values produce `{"tier":"","scrubbed":false}`. Callers constructing new records should use a constructor or explicitly set `Tier` to `TierTeam`. The `Valid()` method on `PrivacyTier` will catch empty strings.
+- **Zero-value Hygiene** — Go zero values produce `{"scrubbed":false}`. Callers set `Scrubbed` and detector fields after the hygiene pipeline runs.
 - **ULID timestamp precision** — ULIDs have millisecond precision. `Timestamp()` returns a `time.Time` with millisecond precision, not nanosecond.
 - **JSON field name casing** — data-spec.md uses `snake_case` for all JSON fields. Go struct tags must match exactly: `started_at`, not `startedAt`.
 - **Empty slices vs null** — Go marshals `nil` slices as `null` and empty slices as `[]`. With `omitempty`, both are omitted. This is correct for our schema (all list fields are optional).
@@ -288,7 +274,7 @@ type Note struct {
 - JSON field names match data-spec.md exactly (spot-check: `started_at`, `files_touched`, `commit_hash`, `scrub_version`)
 - `Session` with `ExitCode` set to `0` serializes `"exit_code": 0` (not omitted)
 - `Session` with `ExitCode` nil omits `exit_code` from JSON
-- `Privacy` zero-value has `Tier` as empty string — `Valid()` returns false
+- `Hygiene` zero-value has `Scrubbed` false
 - Table-driven tests, stdlib `testing` only, no testify
 
 ---
@@ -306,7 +292,6 @@ type Note struct {
 | `TestPrefixRegistryPreregistered` | First-party prefixes            | `ses_` and `sav_` are registered at construction   |
 | `TestPrefixRegistryCollision`     | Collision detection             | Re-registering `ses_` returns error                |
 | `TestPrefixRegistryValidation`    | Prefix format rules             | Rejects invalid prefix formats                     |
-| `TestPrivacyTierValid`            | Enum validation                 | All constants valid, empty and unknown invalid     |
 | `TestScrubModeValid`              | Enum validation                 | All constants valid, empty and unknown invalid     |
 | `TestAttrReasonValid`             | Enum validation                 | All constants valid, empty and unknown invalid     |
 | `TestSessionJSON`                 | JSON round-trip                 | Marshal → unmarshal equals original                |
@@ -314,7 +299,7 @@ type Note struct {
 | `TestSessionExitCode`             | Pointer omitempty behavior      | `0` serialized, `nil` omitted                      |
 | `TestSaveJSON`                    | JSON round-trip                 | Marshal → unmarshal equals original                |
 | `TestNoteJSON`                    | JSON round-trip with RawMessage | Content preserved as raw JSON                      |
-| `TestPrivacyDefaults`             | Zero-value behavior             | Empty tier, scrubbed false                         |
+| `TestHygieneDefaults`             | Zero-value behavior             | scrubbed false                                     |
 
 
 ---
@@ -323,7 +308,7 @@ type Note struct {
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Create `internal/types` package with all shared domain types: ULID helper, ID types with prefix enforcement, prefix collision registry, privacy/scrub/attribution enums, and JSON-serializable record structs.
+**Goal:** Create `internal/types` package with all shared domain types: ULID helper, ID types with prefix enforcement, prefix collision registry, scrub/attribution enums, hygiene metadata, and JSON-serializable record structs.
 
 **Architecture:** Single package `internal/types` — pure data with no I/O, no side effects, no dependencies on other `internal/` packages. All JSON field names match `data-spec.md` exactly. Built incrementally with TDD: one component at a time, test first.
 
@@ -806,35 +791,14 @@ git commit -m "feat(types): add PrefixRegistry with collision detection"
 ### Task 4: Enums
 
 **Files:**
-- Modify: `internal/types/types.go` (append three enum types)
+- Modify: `internal/types/types.go` (append two enum types: ScrubMode, AttrReason)
 - Modify: `internal/types/types_test.go` (append enum tests)
 
-- [ ] **Step 4.1: Write failing tests for all three enums**
+- [ ] **Step 4.1: Write failing tests for both enums**
 
 Append to `internal/types/types_test.go`:
 
 ```go
-func TestPrivacyTierValid(t *testing.T) {
-	tests := []struct {
-		tier  types.PrivacyTier
-		valid bool
-	}{
-		{types.TierPublic, true},
-		{types.TierTeam, true},
-		{types.TierPrivate, true},
-		{"", false},
-		{"unknown", false},
-		{"Public", false}, // case-sensitive
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.tier), func(t *testing.T) {
-			if got := tt.tier.Valid(); got != tt.valid {
-				t.Errorf("PrivacyTier(%q).Valid() = %v, want %v", tt.tier, got, tt.valid)
-			}
-		})
-	}
-}
-
 func TestScrubModeValid(t *testing.T) {
 	tests := []struct {
 		mode  types.ScrubMode
@@ -878,7 +842,7 @@ func TestAttrReasonValid(t *testing.T) {
 - [ ] **Step 4.2: Run tests to confirm they fail**
 
 ```bash
-go test ./internal/types/... -run "TestPrivacyTierValid|TestScrubModeValid|TestAttrReasonValid"
+go test ./internal/types/... -run "TestScrubModeValid|TestAttrReasonValid"
 ```
 
 Expected: FAIL — undefined constants
@@ -888,24 +852,6 @@ Expected: FAIL — undefined constants
 Append to `internal/types/types.go`:
 
 ```go
-// PrivacyTier controls access classification for a record.
-type PrivacyTier string
-
-const (
-	TierPublic  PrivacyTier = "public"  // Visible to anyone with repo access.
-	TierTeam    PrivacyTier = "team"    // Visible to team members (default).
-	TierPrivate PrivacyTier = "private" // Visible only to the session owner.
-)
-
-// Valid reports whether t is a defined PrivacyTier constant.
-func (t PrivacyTier) Valid() bool {
-	switch t {
-	case TierPublic, TierTeam, TierPrivate:
-		return true
-	}
-	return false
-}
-
 // ScrubMode determines how detected secrets are handled.
 type ScrubMode string
 
@@ -945,7 +891,7 @@ func (r AttrReason) Valid() bool {
 - [ ] **Step 4.4: Run tests to confirm they pass**
 
 ```bash
-go test ./internal/types/... -run "TestPrivacyTierValid|TestScrubModeValid|TestAttrReasonValid" -v
+go test ./internal/types/... -run "TestScrubModeValid|TestAttrReasonValid" -v
 ```
 
 Expected: all PASS
@@ -954,7 +900,7 @@ Expected: all PASS
 
 ```bash
 git add internal/types/types.go internal/types/types_test.go
-git commit -m "feat(types): add PrivacyTier, ScrubMode, AttrReason enums"
+git commit -m "feat(types): add ScrubMode, AttrReason enums"
 ```
 
 ---
@@ -962,7 +908,7 @@ git commit -m "feat(types): add PrivacyTier, ScrubMode, AttrReason enums"
 ### Task 5: Record structs and JSON tests
 
 **Files:**
-- Modify: `internal/types/types.go` (append Privacy, Session, Attribution, Save, Note)
+- Modify: `internal/types/types.go` (append Hygiene, Session, Attribution, Save, Note)
 - Modify: `internal/types/types_test.go` (append JSON tests)
 
 > **`omitempty` on `time.Time` note:** Go's `encoding/json` does NOT omit zero-value structs for `omitempty` — only primitives, pointers, slices, maps, and strings. `EndedAt time.Time` with `omitempty` will serialize as `"0001-01-01T00:00:00Z"` when unset, not be omitted. The spec includes this tag; implement exactly as written. This is a known limitation and does not affect any acceptance criteria.
@@ -992,10 +938,7 @@ func TestSessionJSON(t *testing.T) {
 		LinesRemoved: 5,
 		FilesTouched: []string{"main.go", "types.go"},
 		ContentHash:  "deadbeef",
-		Privacy: types.Privacy{
-			Tier:     types.TierTeam,
-			Scrubbed: false,
-		},
+		Hygiene: types.Hygiene{Scrubbed: false},
 		Tags: []string{"feature"},
 	}
 
@@ -1016,8 +959,8 @@ func TestSessionJSON(t *testing.T) {
 	if original.Provider != decoded.Provider {
 		t.Errorf("Provider: got %v, want %v", decoded.Provider, original.Provider)
 	}
-	if original.Privacy.Tier != decoded.Privacy.Tier {
-		t.Errorf("Privacy.Tier: got %v, want %v", decoded.Privacy.Tier, original.Privacy.Tier)
+	if original.Hygiene.Scrubbed != decoded.Hygiene.Scrubbed {
+		t.Errorf("Hygiene.Scrubbed: got %v, want %v", decoded.Hygiene.Scrubbed, original.Hygiene.Scrubbed)
 	}
 }
 
@@ -1030,8 +973,7 @@ func TestSessionFieldNames(t *testing.T) {
 		StartedAt:    time.Now().UTC(),
 		ExitCode:     &exitCode,
 		FilesTouched: []string{"foo.go"},
-		Privacy: types.Privacy{
-			Tier:           types.TierPrivate,
+		Hygiene: types.Hygiene{
 			Scrubbed:       true,
 			ScrubVersion:   "v1",
 			ScrubDetectors: []string{"regex"},
@@ -1052,7 +994,7 @@ func TestSessionFieldNames(t *testing.T) {
 func TestSessionExitCode(t *testing.T) {
 	zero := 0
 	// nil exit_code should be omitted
-	s1 := types.Session{ID: types.NewSessionID(), Version: 1, Provider: "x", StartedAt: time.Now(), Privacy: types.Privacy{Tier: types.TierTeam}}
+	s1 := types.Session{ID: types.NewSessionID(), Version: 1, Provider: "x", StartedAt: time.Now(), Hygiene: types.Hygiene{}}
 	data1, _ := json.Marshal(s1)
 	if strings.Contains(string(data1), "exit_code") {
 		t.Errorf("nil ExitCode should be omitted, got: %s", data1)
@@ -1077,7 +1019,7 @@ func TestSaveJSON(t *testing.T) {
 		Branch:        "main",
 		CreatedAt:     time.Now().UTC().Truncate(time.Second),
 		FilesInCommit: []string{"go.mod", "main.go"},
-		Privacy:       types.Privacy{Tier: types.TierTeam},
+		Hygiene:       types.Hygiene{},
 	}
 	data, err := json.Marshal(original)
 	if err != nil {
@@ -1123,16 +1065,10 @@ func TestNoteJSON(t *testing.T) {
 	}
 }
 
-func TestPrivacyDefaults(t *testing.T) {
-	var p types.Privacy
-	if p.Tier != "" {
-		t.Errorf("zero Privacy.Tier = %q, want empty string", p.Tier)
-	}
-	if p.Scrubbed {
-		t.Error("zero Privacy.Scrubbed = true, want false")
-	}
-	if p.Tier.Valid() {
-		t.Error("empty PrivacyTier.Valid() = true, want false")
+func TestHygieneDefaults(t *testing.T) {
+	var h types.Hygiene
+	if h.Scrubbed {
+		t.Error("zero Hygiene.Scrubbed = true, want false")
 	}
 }
 ```
@@ -1140,10 +1076,10 @@ func TestPrivacyDefaults(t *testing.T) {
 - [ ] **Step 5.2: Run tests to confirm they fail**
 
 ```bash
-go test ./internal/types/... -run "TestSession|TestSave|TestNote|TestPrivacyDefaults"
+go test ./internal/types/... -run "TestSession|TestSave|TestNote|TestHygieneDefaults"
 ```
 
-Expected: FAIL — `types.Session undefined`, `types.Privacy undefined`, etc.
+Expected: FAIL — `types.Session undefined`, `types.Hygiene undefined`, etc.
 
 - [ ] **Step 5.3: Implement record structs**
 
@@ -1152,13 +1088,11 @@ Append to `internal/types/types.go`. Add `"encoding/json"` to the **existing** i
 ```go
 import "encoding/json"
 
-// Privacy metadata is present on every record artifact.
-// Default for new records: Tier = TierTeam, Scrubbed = false.
-type Privacy struct {
-	Tier           PrivacyTier `json:"tier"`
-	Scrubbed       bool        `json:"scrubbed"`
-	ScrubVersion   string      `json:"scrub_version,omitempty"`
-	ScrubDetectors []string    `json:"scrub_detectors,omitempty"`
+// Hygiene metadata records secret scrubbing applied to stored content.
+type Hygiene struct {
+	Scrubbed       bool     `json:"scrubbed"`
+	ScrubVersion   string   `json:"scrub_version,omitempty"`
+	ScrubDetectors []string `json:"scrub_detectors,omitempty"`
 }
 
 // Session mirrors sessions/{shard}/{id}/metadata.json from data-spec.md §2.2.
@@ -1176,7 +1110,7 @@ type Session struct {
 	LinesRemoved int       `json:"lines_removed,omitempty"`
 	FilesTouched []string  `json:"files_touched,omitempty"`
 	ContentHash  string    `json:"content_hash,omitempty"`
-	Privacy      Privacy   `json:"privacy"`
+	Hygiene      Hygiene   `json:"hygiene"`
 	Tags         []string  `json:"tags,omitempty"`
 }
 
@@ -1196,7 +1130,7 @@ type Save struct {
 	CreatedAt     time.Time     `json:"created_at"`
 	FilesInCommit []string      `json:"files_in_commit,omitempty"`
 	ContentHash   string        `json:"content_hash,omitempty"`
-	Privacy       Privacy       `json:"privacy"`
+	Hygiene       Hygiene       `json:"hygiene"`
 }
 
 // Note holds generic note content for any namespace. Content varies by
@@ -1230,7 +1164,7 @@ Expected: no output (no issues)
 
 ```bash
 git add internal/types/types.go internal/types/types_test.go
-git commit -m "feat(types): add Privacy, Session, Attribution, Save, Note structs"
+git commit -m "feat(types): add Hygiene, Session, Attribution, Save, Note structs"
 ```
 
 ---

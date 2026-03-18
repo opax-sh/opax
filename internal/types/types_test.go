@@ -188,3 +188,63 @@ func TestPrefixRegistryValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestPrivacyTierValid(t *testing.T) {
+	tests := []struct {
+		tier  types.PrivacyTier
+		valid bool
+	}{
+		{types.TierPublic, true},
+		{types.TierTeam, true},
+		{types.TierPrivate, true},
+		{"", false},
+		{"unknown", false},
+		{"Public", false}, // case-sensitive
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.tier), func(t *testing.T) {
+			if got := tt.tier.Valid(); got != tt.valid {
+				t.Errorf("PrivacyTier(%q).Valid() = %v, want %v", tt.tier, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestScrubModeValid(t *testing.T) {
+	tests := []struct {
+		mode  types.ScrubMode
+		valid bool
+	}{
+		{types.ScrubRedact, true},
+		{types.ScrubReject, true},
+		{types.ScrubWarn, true},
+		{"", false},
+		{"unknown", false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			if got := tt.mode.Valid(); got != tt.valid {
+				t.Errorf("ScrubMode(%q).Valid() = %v, want %v", tt.mode, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestAttrReasonValid(t *testing.T) {
+	tests := []struct {
+		reason types.AttrReason
+		valid  bool
+	}{
+		{types.AttrFileOverlap, true},
+		{types.AttrTemporal, true},
+		{"", false},
+		{"unknown", false},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.reason), func(t *testing.T) {
+			if got := tt.reason.Valid(); got != tt.valid {
+				t.Errorf("AttrReason(%q).Valid() = %v, want %v", tt.reason, got, tt.valid)
+			}
+		})
+	}
+}

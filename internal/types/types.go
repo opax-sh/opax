@@ -152,3 +152,56 @@ func validatePrefixFormat(prefix string) error {
 	}
 	return nil
 }
+
+// PrivacyTier controls access classification for a record.
+type PrivacyTier string
+
+const (
+	TierPublic  PrivacyTier = "public"  // Visible to anyone with repo access.
+	TierTeam    PrivacyTier = "team"    // Visible to team members (default).
+	TierPrivate PrivacyTier = "private" // Visible only to the session owner.
+)
+
+// Valid reports whether t is a defined PrivacyTier constant.
+func (t PrivacyTier) Valid() bool {
+	switch t {
+	case TierPublic, TierTeam, TierPrivate:
+		return true
+	}
+	return false
+}
+
+// ScrubMode determines how detected secrets are handled.
+type ScrubMode string
+
+const (
+	ScrubRedact ScrubMode = "redact" // Replace with [REDACTED:{type}] (default).
+	ScrubReject ScrubMode = "reject" // Refuse to store content.
+	ScrubWarn   ScrubMode = "warn"   // Store but log a warning.
+)
+
+// Valid reports whether m is a defined ScrubMode constant.
+func (m ScrubMode) Valid() bool {
+	switch m {
+	case ScrubRedact, ScrubReject, ScrubWarn:
+		return true
+	}
+	return false
+}
+
+// AttrReason describes how a session was linked to a save.
+type AttrReason string
+
+const (
+	AttrFileOverlap AttrReason = "file_overlap" // Session files_touched overlaps save files_in_commit.
+	AttrTemporal    AttrReason = "temporal"      // Session active on same branch near commit time.
+)
+
+// Valid reports whether r is a defined AttrReason constant.
+func (r AttrReason) Valid() bool {
+	switch r {
+	case AttrFileOverlap, AttrTemporal:
+		return true
+	}
+	return false
+}

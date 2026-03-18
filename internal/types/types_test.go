@@ -135,3 +135,56 @@ func TestSaveIDValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestPrefixRegistryPreregistered(t *testing.T) {
+	r := types.NewPrefixRegistry()
+	for _, prefix := range []string{"ses_", "sav_"} {
+		if !r.IsRegistered(prefix) {
+			t.Errorf("NewPrefixRegistry() did not pre-register %q", prefix)
+		}
+	}
+}
+
+func TestPrefixRegistryCollision(t *testing.T) {
+	r := types.NewPrefixRegistry()
+	err := r.Register("ses_", "some-plugin")
+	if err == nil {
+		t.Error("Register(\"ses_\", ...) should return error on collision, got nil")
+	}
+}
+
+func TestPrefixRegistrySuccess(t *testing.T) {
+	r := types.NewPrefixRegistry()
+	if err := r.Register("wrk_", "workflows"); err != nil {
+		t.Errorf("Register(\"wrk_\", \"workflows\") unexpected error: %v", err)
+	}
+	if !r.IsRegistered("wrk_") {
+		t.Error("IsRegistered(\"wrk_\") should be true after Register")
+	}
+}
+
+func TestPrefixRegistryValidation(t *testing.T) {
+	r := types.NewPrefixRegistry()
+	tests := []struct {
+		prefix  string
+		wantErr bool
+	}{
+		{"wrk_", false},           // valid 4-char
+		{"ab_", false},            // valid 3-char
+		{"abcd_", false},          // valid 5-char
+		{"no_underscore", true},   // no trailing _
+		{"AB_", true},             // uppercase
+		{"toolong_", true},        // >5 chars
+		{"x", true},               // too short (<3)
+		{"x_", true},              // too short (2 chars)
+		{"", true},                // empty
+	}
+	for _, tt := range tests {
+		t.Run(tt.prefix, func(t *testing.T) {
+			err := r.Register(tt.prefix, "test")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Register(%q) error = %v, wantErr %v", tt.prefix, err, tt.wantErr)
+			}
+		})
+	}
+}

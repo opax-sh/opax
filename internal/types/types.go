@@ -94,3 +94,61 @@ func extractTimestamp(id string, prefixLen int) time.Time {
 	}
 	return ulid.Time(parsed.Time())
 }
+
+// PrefixRegistry tracks registered ID prefixes to prevent collisions between
+// first-party types and plugin-defined types.
+type PrefixRegistry struct {
+	mu     sync.RWMutex
+	owners map[string]string
+}
+
+// NewPrefixRegistry creates a registry with first-party prefixes pre-registered.
+// Pre-registered: "ses_" (sessions), "sav_" (saves) — both owned by "opax".
+func NewPrefixRegistry() *PrefixRegistry {
+	return &PrefixRegistry{
+		owners: map[string]string{
+			sessionPrefix: "opax",
+			savePrefix:    "opax",
+		},
+	}
+}
+
+// Register claims a prefix for the given owner. Returns an error if the prefix
+// is already registered or fails format validation.
+// Format rules: 3–5 chars total, lowercase alphanumeric before trailing "_".
+func (r *PrefixRegistry) Register(prefix, owner string) error {
+	if err := validatePrefixFormat(prefix); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if existing, ok := r.owners[prefix]; ok {
+		return fmt.Errorf("types: prefix %q already registered by %q", prefix, existing)
+	}
+	r.owners[prefix] = owner
+	return nil
+}
+
+// IsRegistered reports whether prefix has been claimed.
+func (r *PrefixRegistry) IsRegistered(prefix string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.owners[prefix]
+	return ok
+}
+
+// validatePrefixFormat enforces: 3–5 chars, trailing "_", lowercase alphanumeric body.
+func validatePrefixFormat(prefix string) error {
+	if len(prefix) < 3 || len(prefix) > 5 {
+		return fmt.Errorf("types: prefix %q must be 3–5 characters (got %d)", prefix, len(prefix))
+	}
+	if prefix[len(prefix)-1] != '_' {
+		return fmt.Errorf("types: prefix %q must end with underscore", prefix)
+	}
+	for _, c := range prefix[:len(prefix)-1] {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+			return fmt.Errorf("types: prefix %q contains invalid character %q (only lowercase alphanumeric)", prefix, c)
+		}
+	}
+	return nil
+}

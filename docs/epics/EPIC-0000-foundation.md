@@ -378,7 +378,7 @@ Implement advisory file locking at `.git/opax.lock` for write serialization. Thi
 
 ### Design
 
-**Advisory file lock** using `os.OpenFile` with `O_CREATE|O_EXCL` for atomic creation. The lock file contains the PID of the holder for stale lock detection.
+**Advisory file lock** using `os.OpenFile` with `O_CREATE|O_EXCL` for atomic creation. The lock file contains the PID of the holder for diagnostics and conservative stale lock detection.
 
 ### Public API
 
@@ -392,13 +392,13 @@ type Lock struct {
 // Acquire attempts to obtain the lock at the given path.
 // Blocks up to timeout, polling at short intervals.
 // Returns ErrLockTimeout if the lock cannot be acquired.
-// Returns ErrStaleLock if a stale lock was detected and cleaned up
-// (caller should retry).
+// Returns ErrStaleLock if a stale or corrupt lock was detected.
+// The lock package does not remove the file automatically.
 func Acquire(path string, timeout time.Duration) (*Lock, error)
 
 // Release releases the lock and removes the lock file.
 // Safe to call multiple times.
-func Release(lock *Lock) error
+func (l *Lock) Release() error
 ```
 
 ### Lock File Content
@@ -417,11 +417,11 @@ The lock file contains a JSON object with the holder's PID and acquisition times
 
 ### Stale Lock Detection
 
-A lock is considered stale if the PID in the lock file does not correspond to a running process. On detecting a stale lock:
+A lock is considered stale if the PID in the lock file does not correspond to a running process, or if the lock file remains corrupt beyond a short initialization grace window. On detecting a stale lock:
 
-1. Log a warning identifying the stale PID
-2. Remove the stale lock file
-3. Return `ErrStaleLock` — caller should retry acquisition
+1. Return `ErrStaleLock`
+2. Leave the lock file in place
+3. Require manual cleanup after verifying no Opax write is active
 
 This handles the case where a previous `opax` process crashed without cleanup.
 
@@ -445,7 +445,7 @@ defer lock.Release()
 - [ ] `Release` removes the lock file
 - [ ] `Release` is idempotent — calling twice does not error
 - [ ] Lock file contains valid JSON with PID and timestamp
-- [ ] Stale lock detection: if PID in lock file is not running, lock is cleaned up
+- [ ] Stale lock detection: if PID in lock file is not running, `ErrStaleLock` is returned and the file remains in place for manual cleanup
 - [ ] Concurrent acquisition test: two goroutines competing for the same lock, only one succeeds immediately
 - [ ] Deferred cleanup works correctly (lock released even if function panics — `defer` semantics)
 - [ ] Error messages include the lock file path: `fmt.Errorf("lock: ...")`

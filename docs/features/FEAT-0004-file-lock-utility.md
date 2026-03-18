@@ -67,7 +67,7 @@ Unexported fields — callers interact only through `Acquire` and `Release`.
 //
 // Errors:
 //   - ErrLockTimeout: timeout expired, lock held by another process
-//   - ErrStaleLock: stale lock was detected and removed (caller should retry)
+//   - ErrStaleLock: stale or corrupt lock detected; manual cleanup required
 func Acquire(path string, timeout time.Duration) (*Lock, error)
 ```
 
@@ -81,11 +81,15 @@ func Acquire(path string, timeout time.Duration) (*Lock, error)
 3. If os.ErrExist:
    a. Read the lock file content
    b. Parse PID from JSON
-   c. Check if PID is alive (syscall.Kill(pid, 0))
-   d. If PID is NOT alive → stale lock:
-      - Remove the lock file
-      - Return ErrStaleLock (caller retries)
-   e. If PID IS alive → lock is held:
+   c. If JSON is empty/invalid and file age is less than initializationGrace:
+      - Treat as in-progress initialization
+      - Sleep 50ms and retry until timeout
+   d. If JSON is empty/invalid after initializationGrace:
+      - Return ErrStaleLock (manual cleanup required)
+   e. Check if PID is alive (syscall.Kill(pid, 0))
+   f. If PID is NOT alive → stale lock:
+      - Return ErrStaleLock (manual cleanup required)
+   g. If PID IS alive → lock is held:
       - Sleep 50ms
       - If elapsed > timeout → return ErrLockTimeout
       - Go to step 1
@@ -119,9 +123,9 @@ var (
     // within the timeout period.
     ErrLockTimeout = errors.New("lock: timeout waiting for lock")
 
-    // ErrStaleLock is returned when a stale lock was detected and
-    // removed. The caller should retry acquisition.
-    ErrStaleLock = errors.New("lock: stale lock removed")
+    // ErrStaleLock is returned when a stale or corrupt lock was detected.
+    // The lock package fails closed and does not remove the file.
+    ErrStaleLock = errors.New("lock: stale or corrupt lock detected")
 )
 ```
 
@@ -156,6 +160,10 @@ const (
 
     // pollInterval is the time between acquisition attempts.
     pollInterval = 50 * time.Millisecond
+
+    // initializationGrace is the maximum time to treat an empty or
+    // invalid lock file as still being initialized by the winner.
+    initializationGrace = 100 * time.Millisecond
 )
 ```
 
@@ -163,17 +171,32 @@ const (
 
 ## Stale Lock Detection
 
-A lock is stale when the process that created it is no longer running. This happens when:
+A lock is stale when the process that created it is no longer running, or when the lock file remains corrupt beyond the initialization grace window. This happens when:
 - `opax` crashes (SIGSEGV, SIGKILL, power loss)
 - A bug prevents `defer lock.Release()` from executing (only in pathological cases)
+- A crash occurs after lock file creation but before metadata is fully written
 
-**Detection method:** `syscall.Kill(pid, 0)` — signal 0 doesn't send a signal but checks if the process exists. Returns `nil` if the process is alive, `syscall.ESRCH` if it doesn't exist.
+**Detection method:** `syscall.Kill(pid, 0)` — signal 0 doesn't send a signal but checks if the process exists. Returns `nil` if the process is alive, `syscall.ESRCH` if it doesn't exist, and `syscall.EPERM` if the process exists but cannot be signaled by the current user.
 
 **Platform notes:**
 - macOS/Linux: `syscall.Kill` works as described
 - Windows: would need `os.FindProcess` + handle check (not a Phase 0 concern — Opax targets macOS/Linux)
 
-**Race condition:** Between reading the lock file and checking the PID, the process could exit and a new process could reuse the PID. This is extremely unlikely (PID space is large, race window is microseconds) and the consequence is benign (we wait for the timeout instead of cleaning up a stale lock).
+**Conservative policy:** The lock package does not delete stale or corrupt lock files. False unlock is worse than false lock. Manual cleanup is preferred over accidentally removing a valid lock held by another process.
+
+**Liveness interpretation:**
+- `nil` or `syscall.EPERM` → process exists, treat lock as live
+- `syscall.ESRCH` → process does not exist, treat lock as stale
+- Any other error → treat as unknown and fail conservatively
+
+### Manual Recovery
+
+When `Acquire` returns `ErrStaleLock`:
+
+1. Inspect `.git/opax.lock`
+2. Verify no Opax write operation is currently running
+3. Remove the file manually if it is confirmed stale or corrupt
+4. Retry the original command
 
 ---
 
@@ -187,8 +210,7 @@ func writeRecord(gitDir string, record Record) error {
 
     lk, err := lock.Acquire(lockPath, lock.DefaultTimeout)
     if errors.Is(err, lock.ErrStaleLock) {
-        // Stale lock was cleaned up, retry once
-        lk, err = lock.Acquire(lockPath, lock.DefaultTimeout)
+        return fmt.Errorf("writeRecord: stale or corrupt lock at %s: %w", lockPath, err)
     }
     if err != nil {
         return fmt.Errorf("writeRecord: %w", err)
@@ -200,18 +222,18 @@ func writeRecord(gitDir string, record Record) error {
 }
 ```
 
-The stale-lock-then-retry pattern is documented here for downstream consumers (E1.3, E4.1). The lock package returns `ErrStaleLock` rather than silently retrying because the caller may want to log or handle the stale lock condition.
+The lock package fails closed. Downstream consumers should surface `ErrStaleLock` clearly and require manual cleanup rather than deleting the lock automatically.
 
 ---
 
 ## Edge Cases
 
-- **Lock file directory doesn't exist** — `Acquire` should return a clear error, not panic. The `.git/opax/` directory is created by `opax init` (E9.1). If it doesn't exist, the lock cannot be created. Error: `lock: directory does not exist: {path}`.
-- **Lock file is not valid JSON** — treat as stale. A partial write (crash during lock creation) produces an incomplete file. Remove it and return `ErrStaleLock`.
-- **Lock file is empty** — treat as stale. Same reasoning as invalid JSON.
+- **Lock file directory doesn't exist** — `Acquire` should return a clear error, not panic. For `.git/opax.lock`, the required parent directory is `.git`. If it doesn't exist, the lock cannot be created. Error: `lock: directory does not exist: {path}`.
+- **Lock file is not valid JSON** — treat as stale after `initializationGrace`. A partial write (crash during lock creation) produces an incomplete file. Do not remove it automatically; return `ErrStaleLock`.
+- **Lock file is empty** — treat as in-progress initialization during `initializationGrace`, then as stale if it remains empty. Do not remove it automatically.
 - **Lock file PID matches current process** — this means the current process already holds the lock. This is a programming error (re-entrant locking). Return a clear error: `lock: already held by current process`.
 - **Nil receiver on Release** — safe, returns nil. This supports the pattern where `Acquire` fails and `defer lock.Release()` was already deferred on a nil variable.
-- **Concurrent goroutines** — the file-level lock serializes across processes. Within a single process, callers are responsible for not calling `Acquire` from multiple goroutines on the same path simultaneously (or handling `ErrLockTimeout` gracefully). This is acceptable because Phase 0 has no concurrent write paths within a single `opax` invocation.
+- **Concurrent callers in the same process** — re-entrant acquisition from the same process is treated as a programming error. Cross-process serialization is the supported coordination mechanism.
 - **Timeout of zero** — a single attempt with no retry. Either acquires immediately or returns `ErrLockTimeout`.
 - **Very long timeout** — no upper bound enforced. Caller controls the duration.
 
@@ -224,15 +246,15 @@ The stale-lock-then-retry pattern is documented here for downstream consumers (E
 - [ ] `Acquire` returns `*Lock` on success
 - [ ] `Acquire` blocks and retries up to timeout when lock is held by another process
 - [ ] `Acquire` returns `ErrLockTimeout` after timeout, with holder PID in error message
-- [ ] `Acquire` detects stale lock (dead PID), removes lock file, returns `ErrStaleLock`
-- [ ] `Acquire` treats invalid/empty lock file content as stale
+- [ ] `Acquire` detects stale lock (dead PID), leaves the lock file in place, returns `ErrStaleLock`
+- [ ] `Acquire` treats invalid/empty lock file content as in-progress initialization during `initializationGrace`, then returns `ErrStaleLock` without deleting the file
 - [ ] `Release` removes the lock file
 - [ ] `Release` is idempotent — calling twice does not error
 - [ ] `Release` on nil receiver does not panic
 - [ ] Lock file does not exist after successful `Release`
-- [ ] Concurrent test: two goroutines race to acquire — exactly one succeeds, other eventually acquires after first releases
+- [ ] Concurrent test: two processes race to acquire — exactly one succeeds immediately, the other acquires after the first releases
 - [ ] Timeout test: acquire lock, attempt second acquire with 100ms timeout — returns `ErrLockTimeout` within reasonable margin
-- [ ] Stale lock test: create lock file with non-existent PID, acquire succeeds after stale removal
+- [ ] Stale lock test: create lock file with non-existent PID, acquire returns `ErrStaleLock` and leaves the file in place
 - [ ] Deferred cleanup: `defer lock.Release()` works correctly in normal return and early-return error paths
 - [ ] Error messages follow `fmt.Errorf("lock: ...")` convention
 - [ ] Table-driven tests, stdlib `testing` only
@@ -249,12 +271,150 @@ The stale-lock-then-retry pattern is documented here for downstream consumers (E
 | `TestReleaseNilReceiver` | Nil safety | No panic, returns nil |
 | `TestAcquireTimeout` | Timeout behavior | Held lock causes `ErrLockTimeout` within margin of timeout value |
 | `TestAcquireTimeoutMessage` | Error detail | Error message includes holder PID and file path |
-| `TestAcquireStaleLock` | Stale detection | Lock file with dead PID → `ErrStaleLock`, lock file removed |
-| `TestAcquireInvalidLockFile` | Corrupt file handling | Non-JSON lock file → treated as stale |
-| `TestAcquireEmptyLockFile` | Empty file handling | Empty lock file → treated as stale |
-| `TestAcquireConcurrent` | Cross-goroutine serialization | Two goroutines: first acquires, second blocks, second acquires after first releases |
+| `TestAcquireStaleLock` | Stale detection | Lock file with dead PID → `ErrStaleLock`, lock file remains |
+| `TestAcquireInvalidLockFile` | Corrupt file handling | Non-JSON lock file older than grace window → `ErrStaleLock`, file remains |
+| `TestAcquireEmptyLockFile` | Empty file handling | Empty lock file older than grace window → `ErrStaleLock`, file remains |
+| `TestAcquireConcurrent` | Cross-process serialization | One process acquires, another blocks, second acquires after first releases |
 | `TestAcquireReentrant` | Same-process detection | Current PID in lock file → clear error |
 | `TestAcquireZeroTimeout` | Single attempt | Returns immediately: either success or timeout |
 | `TestAcquireNoDirectory` | Missing parent dir | Returns error mentioning directory |
 | `TestLockFileContent` | JSON format | Parses as `{"pid": N, "acquired_at": "..."}` with valid timestamp |
 | `TestDeferPattern` | Deferred cleanup | Lock released even when function returns error early |
+| `TestAcquireInitializingLockFileWaits` | Grace window | Newly created empty lock file is treated as initializing before failing stale |
+
+---
+
+## Implementation Plan
+
+### Scope
+
+Implement `internal/lock/` as the single advisory file lock utility for all Phase 0 write serialization. This package remains stdlib-only and does not depend on git, store, CAS, or CLI packages.
+
+### API To Implement
+
+- [ ] Create `internal/lock/lock.go`
+- [ ] Create `internal/lock/lock_test.go`
+- [ ] Define `type Lock struct { path string; file *os.File }`
+- [ ] Define `func Acquire(path string, timeout time.Duration) (*Lock, error)`
+- [ ] Define `func (l *Lock) Release() error`
+- [ ] Define `ErrLockTimeout`
+- [ ] Define `ErrStaleLock`
+- [ ] Define `DefaultTimeout = 5 * time.Second`
+- [ ] Define `pollInterval = 50 * time.Millisecond`
+
+### Acquire Implementation
+
+- [ ] Validate that the parent directory of `path` exists before trying to create the lock file
+- [ ] Return a clear `lock: ...` error when the directory does not exist
+- [ ] Attempt lock acquisition with `os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)`
+- [ ] On success, write JSON lock metadata containing:
+  - [ ] Current PID from `os.Getpid()`
+  - [ ] UTC acquisition timestamp in RFC 3339 format
+- [ ] Return `*Lock` with the open file handle preserved
+- [ ] If writing lock metadata fails after file creation:
+  - [ ] Close the file
+  - [ ] Remove the partially created lock file
+  - [ ] Return a wrapped `lock: ...` error
+
+### Existing Lock Handling
+
+- [ ] When `os.OpenFile` returns `os.ErrExist`, inspect the current lock file
+- [ ] Read and parse lock file contents into an internal `lockInfo` struct
+- [ ] Treat invalid JSON as stale lock state
+- [ ] Treat empty file content as stale lock state
+- [ ] If lock PID matches `os.Getpid()`, return `lock: already held by current process`
+- [ ] Check process liveness with `syscall.Kill(pid, 0)`
+- [ ] If PID is dead (`syscall.ESRCH`):
+  - [ ] Remove the stale lock file
+  - [ ] Return `ErrStaleLock`
+- [ ] If PID is alive:
+  - [ ] Sleep for `pollInterval`
+  - [ ] Retry until timeout expires
+- [ ] On timeout, return a wrapped error that includes:
+  - [ ] Lock path
+  - [ ] Holder PID
+  - [ ] Holder acquisition timestamp
+  - [ ] `ErrLockTimeout`
+
+### Timeout Semantics
+
+- [ ] Support zero timeout as a single immediate acquisition attempt
+- [ ] Do not sleep/retry when timeout is zero
+- [ ] Preserve last-known holder metadata for timeout error messages
+- [ ] Use `errors.Is(err, ErrLockTimeout)` compatibility in returned timeout errors
+
+### Release Implementation
+
+- [ ] Return `nil` when called on a nil receiver
+- [ ] Return `nil` when `l.file == nil`
+- [ ] Close the underlying file handle
+- [ ] Remove the lock file from disk
+- [ ] Set `l.file = nil` after release
+- [ ] Make double release safe and non-failing
+- [ ] Return wrapped `lock: ...` errors when close/remove fail
+- [ ] If both close and remove fail, return an error that preserves both failure points
+
+### Internal Helpers
+
+- [ ] Add an unexported `lockInfo` struct with `pid` and `acquired_at` JSON fields
+- [ ] Add a helper to write lock metadata JSON
+- [ ] Add a helper to read/parse lock metadata JSON
+- [ ] Add a helper to determine whether a PID is alive
+- [ ] Add a helper for stale lock cleanup if it simplifies `Acquire`
+
+### Test Execution Checklist
+
+#### Core lifecycle
+
+- [ ] `TestAcquireSuccess`
+- [ ] `TestAcquireAndRelease`
+- [ ] `TestReleaseIdempotent`
+- [ ] `TestReleaseNilReceiver`
+
+#### Timeout behavior
+
+- [ ] `TestAcquireTimeout`
+- [ ] `TestAcquireTimeoutMessage`
+- [ ] Assert returned error matches `ErrLockTimeout`
+- [ ] Assert timeout error mentions path and holder PID
+- [ ] Assert timing is within a reasonable margin, not an exact duration
+
+#### Stale and corrupt lock handling
+
+- [ ] `TestAcquireStaleLock`
+- [ ] `TestAcquireInvalidLockFile`
+- [ ] `TestAcquireEmptyLockFile`
+- [ ] Verify stale lock file is removed before returning `ErrStaleLock`
+
+#### Edge cases
+
+- [ ] `TestAcquireReentrant`
+- [ ] `TestAcquireZeroTimeout`
+- [ ] `TestAcquireNoDirectory`
+- [ ] `TestLockFileContent`
+- [ ] `TestDeferPattern`
+
+#### Concurrency
+
+- [ ] `TestAcquireConcurrent`
+- [ ] Coordinate two goroutines with channels
+- [ ] Verify first goroutine acquires immediately
+- [ ] Verify second goroutine blocks while first holds the lock
+- [ ] Verify second goroutine acquires after first releases
+- [ ] Verify only one lock holder exists at a time
+
+### Verification
+
+- [ ] `go test ./internal/lock/...` passes
+- [ ] `make test` passes
+- [ ] `make lint` passes
+- [ ] Error messages follow the `fmt.Errorf("lock: ...")` convention
+- [ ] Implementation stays stdlib-only
+- [ ] Package is ready for reuse by E1.3 and E4.1 write paths
+
+### Notes and Clarifications
+
+- [ ] Use method form `func (l *Lock) Release() error` to match this feature spec and intended `defer lk.Release()` usage
+- [ ] Treat this feature doc as authoritative over the older epic doc if they conflict on release shape
+- [ ] Clarify that the required parent directory for `.git/opax.lock` is `.git`, not `.git/opax/`
+- [ ] Do not add logging to the lock package; stale-lock visibility should come from the caller after receiving `ErrStaleLock`

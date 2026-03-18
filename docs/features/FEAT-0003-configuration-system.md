@@ -23,18 +23,22 @@ The config system must support three tiers: SDK defaults (always present, hardco
 
 ### Files
 
-| File | Contents |
-|---|---|
-| `internal/config/config.go` | All types, `Load`, `Default`, `Validate`, merge logic |
-| `internal/config/config_test.go` | Table-driven tests |
+
+| File                             | Contents                                              |
+| -------------------------------- | ----------------------------------------------------- |
+| `internal/config/config.go`      | All types, `Load`, `Default`, `Validate`, merge logic |
+| `internal/config/config_test.go` | Table-driven tests                                    |
+
 
 ### Config File Locations
 
-| Tier | Path | Committed | Purpose |
-|---|---|---|---|
-| SDK defaults | Hardcoded in Go | N/A | Sensible baseline, always present |
-| Team | `{repoRoot}/.opax/config.yaml` | Yes | Shared team settings |
-| Personal | `~/.config/opax/config.yaml` | No | Individual overrides |
+
+| Tier         | Path                           | Committed | Purpose                           |
+| ------------ | ------------------------------ | --------- | --------------------------------- |
+| SDK defaults | Hardcoded in Go                | N/A       | Sensible baseline, always present |
+| Team         | `{repoRoot}/.opax/config.yaml` | Yes       | Shared team settings              |
+| Personal     | `~/.config/opax/config.yaml`   | No        | Individual overrides              |
+
 
 Missing files are silently skipped — not an error. An empty file is valid (all defaults apply).
 
@@ -119,7 +123,7 @@ type CaptureConfig struct {
 }
 ```
 
-`EnabledSources` lists agent platforms to capture from (e.g., `["claude-code", "codex"]`). `LastCapture` maps source name to an ISO 8601 timestamp of the last successful capture — used by E7 to avoid re-reading already-processed sessions.
+`EnabledSources` lists agent platforms to capture from (e.g., `["claude", "codex"]`). `LastCapture` maps source name to an ISO 8601 timestamp of the last successful capture — used by E7 to avoid re-reading already-processed sessions.
 
 ### Trailers Section
 
@@ -190,6 +194,7 @@ func Load(repoRoot string) (*OpaxConfig, error)
 ```
 
 **Load order:**
+
 1. Start with `Default()`
 2. Read `{repoRoot}/.opax/config.yaml` — merge over defaults (if file exists)
 3. Read `~/.config/opax/config.yaml` — merge over result (if file exists)
@@ -200,12 +205,14 @@ func Load(repoRoot string) (*OpaxConfig, error)
 
 Deep merge at the struct level with these rules:
 
-| Field type | Merge behavior |
-|---|---|
-| Scalar (`string`, `int`, `float64`, `bool`) | Override: non-zero value in higher-priority file wins |
-| Slice (`[]string`, `[]PatternConfig`) | Replace: higher-priority file's slice replaces entirely (not append) |
-| Map (`map[string]string`) | Merge: keys from higher-priority file override or add; keys only in lower-priority file are preserved |
-| Struct | Recursive: merge each field individually |
+
+| Field type                                  | Merge behavior                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Scalar (`string`, `int`, `float64`, `bool`) | Override: non-zero value in higher-priority file wins                                                 |
+| Slice (`[]string`, `[]PatternConfig`)       | Replace: higher-priority file's slice replaces entirely (not append)                                  |
+| Map (`map[string]string`)                   | Merge: keys from higher-priority file override or add; keys only in lower-priority file are preserved |
+| Struct                                      | Recursive: merge each field individually                                                              |
+
 
 **Why slices replace:** If a team config sets `builtin_detectors: [aws_keys, github_tokens]` and a personal config sets `builtin_detectors: [aws_keys]`, the personal config intends to disable `github_tokens`. Appending would defeat this purpose. Replace semantics give the higher-priority file full control over list contents.
 
@@ -229,22 +236,24 @@ func Validate(cfg *OpaxConfig) error
 
 ### Validation Rules
 
-| Rule | Field | Check |
-|---|---|---|
-| Enum validity | `scrubbing.mode` | Must be `redact`, `reject`, or `warn` |
-| Enum validity | `default_tiers.session` | Must be `public`, `team`, or `private` |
-| Enum validity | `default_tiers.workflow` | Must be `public`, `team`, or `private` |
-| Enum validity | `default_tiers.action` | Must be `public`, `team`, or `private` |
-| Required field | `privacy.version` | Must be > 0 |
-| Regex compilation | `custom_patterns[*].pattern` | Each must compile via `regexp.Compile` |
-| Regex compilation | `allowlist[*]` | Each entry that looks like a regex must compile |
-| Pattern name | `custom_patterns[*].name` | Must be non-empty |
-| Duration format | `storage.retention.hot` | Must parse as a duration if non-empty |
-| Duration format | `storage.retention.warm` | Must parse as a duration if non-empty |
-| Duration format | `storage.retention.compliance_floor` | Must parse as a duration if non-empty |
-| Entropy range | `scrubbing.entropy.threshold` | Must be > 0 if entropy enabled |
-| Length range | `scrubbing.entropy.min_length` | Must be > 0 if entropy enabled |
-| Trailer prefix | `trailers.prefix` | Must end with `"-"` if non-empty |
+
+| Rule              | Field                                | Check                                           |
+| ----------------- | ------------------------------------ | ----------------------------------------------- |
+| Enum validity     | `scrubbing.mode`                     | Must be `redact`, `reject`, or `warn`           |
+| Enum validity     | `default_tiers.session`              | Must be `public`, `team`, or `private`          |
+| Enum validity     | `default_tiers.workflow`             | Must be `public`, `team`, or `private`          |
+| Enum validity     | `default_tiers.action`               | Must be `public`, `team`, or `private`          |
+| Required field    | `privacy.version`                    | Must be > 0                                     |
+| Regex compilation | `custom_patterns[*].pattern`         | Each must compile via `regexp.Compile`          |
+| Regex compilation | `allowlist[*]`                       | Each entry that looks like a regex must compile |
+| Pattern name      | `custom_patterns[*].name`            | Must be non-empty                               |
+| Duration format   | `storage.retention.hot`              | Must parse as a duration if non-empty           |
+| Duration format   | `storage.retention.warm`             | Must parse as a duration if non-empty           |
+| Duration format   | `storage.retention.compliance_floor` | Must parse as a duration if non-empty           |
+| Entropy range     | `scrubbing.entropy.threshold`        | Must be > 0 if entropy enabled                  |
+| Length range      | `scrubbing.entropy.min_length`       | Must be > 0 if entropy enabled                  |
+| Trailer prefix    | `trailers.prefix`                    | Must end with `"-"` if non-empty                |
+
 
 Error message format: `config: validate: {section}.{field}: {reason}`.
 
@@ -274,50 +283,53 @@ func ParseDuration(s string) (time.Duration, error)
 
 ## Acceptance Criteria
 
-- [ ] `Default()` returns a fully populated config matching the SDK defaults
-- [ ] `Load()` returns defaults when no config files exist
-- [ ] `Load()` merges team config over defaults correctly
-- [ ] `Load()` merges personal config over team config over defaults correctly
-- [ ] Scalar override: personal `mode: reject` overrides team `mode: redact`
-- [ ] Slice replace: personal `builtin_detectors: [aws_keys]` replaces team's full list
-- [ ] Map merge: personal `last_capture` keys merge with team's keys
-- [ ] Unknown YAML keys cause `Load()` to return an error with file path and key name
-- [ ] Invalid `scrubbing.mode` value causes `Validate()` to return an error
-- [ ] Invalid `default_tiers` value causes `Validate()` to return an error
-- [ ] Invalid regex in `custom_patterns` causes `Validate()` to return an error including pattern name
-- [ ] Missing config files are silently skipped
-- [ ] Empty config file is valid (all defaults apply)
-- [ ] `ParseDuration("30d")` returns 30 * 24 hours
-- [ ] `ParseDuration("3y")` returns 365 * 3 * 24 hours
-- [ ] `ParseDuration("invalid")` returns an error
-- [ ] `Validate()` rejects `privacy.version: 0`
-- [ ] `Validate()` rejects `trailers.prefix: "NoTrailingDash"`
-- [ ] Error messages include file path and field name
-- [ ] Table-driven tests, stdlib `testing` only
+- `Default()` returns a fully populated config matching the SDK defaults
+- `Load()` returns defaults when no config files exist
+- `Load()` merges team config over defaults correctly
+- `Load()` merges personal config over team config over defaults correctly
+- Scalar override: personal `mode: reject` overrides team `mode: redact`
+- Slice replace: personal `builtin_detectors: [aws_keys]` replaces team's full list
+- Map merge: personal `last_capture` keys merge with team's keys
+- Unknown YAML keys cause `Load()` to return an error with file path and key name
+- Invalid `scrubbing.mode` value causes `Validate()` to return an error
+- Invalid `default_tiers` value causes `Validate()` to return an error
+- Invalid regex in `custom_patterns` causes `Validate()` to return an error including pattern name
+- Missing config files are silently skipped
+- Empty config file is valid (all defaults apply)
+- `ParseDuration("30d")` returns 30 * 24 hours
+- `ParseDuration("3y")` returns 365 * 3 * 24 hours
+- `ParseDuration("invalid")` returns an error
+- `Validate()` rejects `privacy.version: 0`
+- `Validate()` rejects `trailers.prefix: "NoTrailingDash"`
+- Error messages include file path and field name
+- Table-driven tests, stdlib `testing` only
 
 ---
 
 ## Test Plan
 
-| Test | What it verifies | Pass condition |
-|---|---|---|
-| `TestDefault` | SDK defaults completeness | All fields populated with expected values |
-| `TestLoadNoFiles` | Missing files behavior | Returns defaults, no error |
-| `TestLoadTeamOnly` | Single-file merge | Team values override defaults |
-| `TestLoadTeamAndPersonal` | Two-file merge | Personal overrides team overrides defaults |
-| `TestMergeScalarOverride` | Scalar merge semantics | Higher-priority value wins |
-| `TestMergeSliceReplace` | Slice merge semantics | Higher-priority slice replaces entirely |
-| `TestMergeMapMerge` | Map merge semantics | Keys merge, higher-priority wins on conflict |
-| `TestStrictUnknownKey` | Strict YAML parsing | Unknown key returns error with file path |
-| `TestValidateMode` | Enum validation | Invalid mode rejected, valid modes accepted |
-| `TestValidateTiers` | Enum validation | Invalid tier rejected, valid tiers accepted |
-| `TestValidateCustomPattern` | Regex compilation | Invalid regex rejected with pattern name in error |
-| `TestValidateRetention` | Duration format | Valid durations accepted, invalid rejected |
-| `TestValidateVersion` | Required field | version: 0 rejected |
-| `TestValidateTrailerPrefix` | Format constraint | Must end with "-" |
-| `TestValidateEntropy` | Range check | threshold ≤ 0 rejected when enabled |
-| `TestParseDuration` | Duration parsing (table-driven) | All units parse correctly, invalid formats error |
-| `TestLoadUnreadableFile` | Permission error | Returns error with file path |
-| `TestEmptyConfigFile` | Edge case | All defaults apply, no error |
-| `TestPartialConfig` | Partial override | Only specified fields override |
-| `TestBooleanFalseOverride` | Zero-value bool merge | `enabled: false` is respected, not treated as "unset" |
+
+| Test                        | What it verifies                | Pass condition                                        |
+| --------------------------- | ------------------------------- | ----------------------------------------------------- |
+| `TestDefault`               | SDK defaults completeness       | All fields populated with expected values             |
+| `TestLoadNoFiles`           | Missing files behavior          | Returns defaults, no error                            |
+| `TestLoadTeamOnly`          | Single-file merge               | Team values override defaults                         |
+| `TestLoadTeamAndPersonal`   | Two-file merge                  | Personal overrides team overrides defaults            |
+| `TestMergeScalarOverride`   | Scalar merge semantics          | Higher-priority value wins                            |
+| `TestMergeSliceReplace`     | Slice merge semantics           | Higher-priority slice replaces entirely               |
+| `TestMergeMapMerge`         | Map merge semantics             | Keys merge, higher-priority wins on conflict          |
+| `TestStrictUnknownKey`      | Strict YAML parsing             | Unknown key returns error with file path              |
+| `TestValidateMode`          | Enum validation                 | Invalid mode rejected, valid modes accepted           |
+| `TestValidateTiers`         | Enum validation                 | Invalid tier rejected, valid tiers accepted           |
+| `TestValidateCustomPattern` | Regex compilation               | Invalid regex rejected with pattern name in error     |
+| `TestValidateRetention`     | Duration format                 | Valid durations accepted, invalid rejected            |
+| `TestValidateVersion`       | Required field                  | version: 0 rejected                                   |
+| `TestValidateTrailerPrefix` | Format constraint               | Must end with "-"                                     |
+| `TestValidateEntropy`       | Range check                     | threshold ≤ 0 rejected when enabled                   |
+| `TestParseDuration`         | Duration parsing (table-driven) | All units parse correctly, invalid formats error      |
+| `TestLoadUnreadableFile`    | Permission error                | Returns error with file path                          |
+| `TestEmptyConfigFile`       | Edge case                       | All defaults apply, no error                          |
+| `TestPartialConfig`         | Partial override                | Only specified fields override                        |
+| `TestBooleanFalseOverride`  | Zero-value bool merge           | `enabled: false` is respected, not treated as "unset" |
+
+

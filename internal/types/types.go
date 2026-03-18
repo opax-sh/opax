@@ -123,7 +123,7 @@ func (r *PrefixRegistry) Register(prefix, owner string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if existing, ok := r.owners[prefix]; ok {
-		return fmt.Errorf("types: prefix %q already registered by %q", prefix, existing)
+		return fmt.Errorf("types: prefix %q already registered by %q, cannot register for %q", prefix, existing, owner)
 	}
 	r.owners[prefix] = owner
 	return nil

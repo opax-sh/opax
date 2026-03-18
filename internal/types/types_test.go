@@ -164,7 +164,6 @@ func TestPrefixRegistrySuccess(t *testing.T) {
 }
 
 func TestPrefixRegistryValidation(t *testing.T) {
-	r := types.NewPrefixRegistry()
 	tests := []struct {
 		prefix  string
 		wantErr bool
@@ -181,6 +180,7 @@ func TestPrefixRegistryValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.prefix, func(t *testing.T) {
+			r := types.NewPrefixRegistry()
 			err := r.Register(tt.prefix, "test")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Register(%q) error = %v, wantErr %v", tt.prefix, err, tt.wantErr)

@@ -165,14 +165,14 @@ Full `BestIndex` planning with constraint push-down and `ColUsed` bitmask. Optio
 
 **Materialized tables** (heavy analytical queries — unchanged):
 
-- `opax_contexts`, `opax_sessions`, `opax_saves`, `opax_notes`
+- `opax_sessions`, `opax_saves`, `opax_notes`
 - FTS5 indexes for full-text search
 - Synced from git via dirty-flag + lazy materialization
 
 **Virtual tables** (lightweight, always-current operational queries — new):
 
 - `opax_vtab_refs` — current git refs, no materialization needed
-- `opax_vtab_active_workflows` — reads from `refs/opax/workflows/active` directly
+- `opax_vtab_active_workflows` — plugin-owned; reads from `refs/opax/workflows/active` directly
 - `opax_vtab_plugins` — registered plugin state
 
 Benefits:

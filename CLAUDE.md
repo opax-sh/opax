@@ -65,4 +65,4 @@ These are non-negotiable. Violating any of these is a bug.
 5. **SQLite is a cache** — `.git/opax/opax.db` is always rebuildable from git via `opax db rebuild`. Never treat it as source of truth
 6. **Passive capture primary** — hooks read agent session files from disk after the fact. MCP is a complement for platforms without shell access, not the primary path
 7. **Write serialization** — `.git/opax.lock` for all writes to the consolidated branch. No concurrent writes in Phase 0
-8. **Commit trailers use `Opax-` prefix** — branch namespace uses `opax/`, and trailers keep `Opax-` (e.g., `Opax-Session`)
+8. **Commit trailers use `Opax-` prefix** — branch namespace uses `opax/`, and trailers keep `Opax-` (e.g., `Opax-Save`)

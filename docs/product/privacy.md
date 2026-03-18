@@ -8,7 +8,7 @@
 
 ## Overview
 
-Agent sessions routinely encounter API keys, database credentials, authentication tokens, and other secrets. Since Opax stores session transcripts and context artifacts in git — a system designed for permanent, distributed storage — the privacy system must prevent sensitive content from ever being persisted, and control who can read stored data.
+Agent sessions routinely encounter API keys, database credentials, authentication tokens, and other secrets. Since Opax stores session transcripts and session archives in git — a system designed for permanent, distributed storage — the privacy system must prevent sensitive content from ever being persisted, and control who can read stored data.
 
 The privacy system is a **layered pipeline** with a non-negotiable ordering: scrubbing always precedes encryption. Secrets must never be stored even in encrypted form, because encryption keys can be compromised, key rotation doesn't retroactively protect historical data, and the attack surface is smaller when secrets simply don't exist in the data layer.
 
@@ -51,9 +51,9 @@ Phase 0 ships steps 1–3 (detection, scrubbing, classification). Phase 1 adds s
 
 Ships with the core SDK and MCP server. Runs on all content before it's written to git.
 
-### Configuration: `privacy.yaml`
+### Configuration
 
-Located at `.opax/privacy.yaml` (committed, team-shared) or `~/.config/opax/privacy.yaml` (personal overrides).
+Privacy settings are part of the single `config.yaml`. Located at `.opax/config.yaml` (committed, team-shared) or `~/.config/opax/config.yaml` (personal overrides).
 
 ```yaml
 privacy:
@@ -105,7 +105,6 @@ privacy:
 
   # Privacy tier defaults for new artifacts
   default_tiers:
-    context: public
     session: team
     workflow: team
     action: team
@@ -236,8 +235,8 @@ The SDK attempts decryption transparently when reading encrypted artifacts. If t
 Privacy settings merge with the following precedence (highest first):
 
 1. Per-artifact override (set via SDK at write time)
-2. `~/.config/opax/privacy.yaml` (personal overrides)
-3. `.opax/privacy.yaml` (team-shared, committed)
+2. `~/.config/opax/config.yaml` (personal overrides)
+3. `.opax/config.yaml` (team-shared, committed)
 4. SDK defaults (scrub mode: redact, default tiers as above)
 
 ---

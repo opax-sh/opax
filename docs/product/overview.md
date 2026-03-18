@@ -71,7 +71,7 @@ The core is deliberately thin. It owns data infrastructure; all domain logic liv
 
 **CLI (`opax`)** — Primary interface for both humans AND agents with shell access (Claude Code, Codex, Aider, Goose). Agents learn about Opax via CLAUDE.md / project docs and query via `opax search`. Core provides base commands (`opax init`, `opax db`, `opax storage`); plugins register subcommands (`opax session`, `opax workflow`, `opax eval`).
 
-**MCP Server** — Secondary interface for agent platforms without shell access (Claude web, ChatGPT, mobile). Wraps the same SDK operations as the CLI. Tools: search, list, get, handoff. Not the primary integration point — most agents use the CLI directly.
+**MCP Server** — Secondary interface for agent platforms without shell access (Claude web, ChatGPT, mobile). Wraps the same SDK operations as the CLI. Tools: `search_sessions`, `list_sessions`, `get_session`. Not the primary integration point — most agents use the CLI directly.
 
 **Studio** — Web UI for visualizing Opax data. Two deployment modes:
 
@@ -94,7 +94,7 @@ Plugins implement a common `OpaxPlugin` interface that provides: namespace regis
 - **Commit-anchored –** The primary question is "what context produced this commit?" not "what commits did this session produce?" Saves are created on commit. Session data hangs off the save. This produces a natural audit trail — developers and auditors trace backward from code to context.
 - **Passive capture first –** Agents should not need to actively cooperate with Opax. The system reads agent-native storage after the fact. MCP is a complement for platforms without shell access, not the primary integration.
 - **Scrubbing before encryption** – Secrets must never be stored even in encrypted form. The privacy pipeline order is non-negotiable.
-- **Layered metadata** – A single `Opax-Session` trailer on each commit provides a tamper-proof link to the session archive. Detailed metadata lives in git notes, which are invisible by default and do not modify the commit hash. Teams that need stronger audit guarantees can enable signed commits on Opax data branches, pin archive hashes in trailers, or enforce branch protection rules on `opax/` refs. Opax provides the tooling for each layer. Teams choose what they need.
+- **Layered metadata** – A single `Opax-Save` trailer on each commit provides a tamper-proof link to the session archive. Detailed metadata lives in git notes, which are invisible by default and do not modify the commit hash. Teams that need stronger audit guarantees can enable signed commits on Opax data branches, pin archive hashes in trailers, or enforce branch protection rules on `opax/` refs. Opax provides the tooling for each layer. Teams choose what they need.
 - **Plugin ownership –** The workflows YAML format belongs to the plugin, not the spec. Keeps the core thin and the plugin replaceable. Same principle applies to eval criteria, adapter schemas, and executor configs.
 - **Open spec first –** The git data format is implementable by third-party tools without the Opax SDK. This is the key ecosystem and defensibility lever: network effects come from the spec, not the runtime.
 - **Phased infrastructure –** SQLite locally (zero friction), Postgres only at the web control plane where its strengths (JSONB/GIN indexes, `LISTEN`/`NOTIFY`, `pgvector`, concurrent writes) are warranted.
@@ -117,7 +117,7 @@ Opax advances state reactively. The workflow state machine only moves forward wh
 
 ### Scenario 3: Agent → Human (Audit & Compliance)
 
-Every agent-produced commit is annotated with structured metadata via git notes and an `Opax-Session` trailer: which agent produced it, which workflow stage, how long the session took. Passive capture ensures session recording without agent cooperation. Review assessments, test results, and eval scores are also notes. The complete provenance chain from initial prompt to production code is captured as immutable, cryptographically-linked git history.
+Every agent-produced commit is annotated with structured metadata via git notes and an `Opax-Save` trailer: which agent produced it, which workflow stage, how long the session took. Passive capture ensures session recording without agent cooperation. Review assessments, test results, and eval scores are also notes. The complete provenance chain from initial prompt to production code is captured as immutable, cryptographically-linked git history.
 
 For commits without any agent session (pure human coding), no session record exists — this is correct behavior since compliance concerns AI system logging, not all development.
 
@@ -185,7 +185,7 @@ Agent session recording that works across platforms. Passive capture + CLI searc
 
 - `opax` binary (Go) — single binary containing CLI, SDK, plugin system, passive capture, MCP server
 - Core: git data operations (go-git), SQLite materialization (modernc.org/sqlite), FTS5 search, plugin loading, privacy pipeline (scrubbing), content-addressed storage
-- Memory plugin (built-in): session recording, search, handoff
+- Memory plugin (built-in): session recording, search
 - Passive capture: Claude Code hook integration + Codex session reader. Save creation on commit. Transcript normalization into common format.
 - CLI: `opax init`, `opax search`, `opax session list/get`, `opax db rebuild`, `opax storage stats`, `opax doctor`
 - MCP server (built-in, secondary): for web-only platforms (Claude web, ChatGPT)
@@ -255,7 +255,7 @@ Accumulated architectural decisions from design conversations, in chronological 
 7. **Orchestration:** Opax handles inter-session orchestration (durable state between sessions). Intra-session orchestration (LangGraph's domain) is out of scope. We call them "workflows".
 8. **Plugin naming:** "Workflows" not "orchestration" or "dispatch." The name avoids undermining the positioning.
 9. **No daemon locally.** Fire-and-forget. Hooks fire async. No persistent process. Every feature requiring a persistent process is on the paid hosted tier.
-10. **Notes over trailers by default.** Notes don't modify commit hashes. Trailers are opt-in. Avoids the "Claude signature" backlash problem.
+10. **Trailers by default, notes as fallback.** Trailers are the default session linkage mechanism — immutable, tamper-evident, cryptographically bound to the commit hash. Notes are used for post-commit plugin data (test results, review verdicts, eval scores) that arrives after the commit. Teams that object to modified commit messages can disable trailers via `--no-trailers`, falling back to notes for session linkage.
 11. **Privacy pipeline order:** Scrub → encrypt. Non-negotiable. `PrivacyMetadata` type ships in Phase 0 to scaffold Phase 1 encryption.
 12. **Encryption tool:** `age`. Per-tier recipient key sets. Hybrid approach: encrypt content files, leave `metadata.json` plaintext to preserve git delta compression.
 13. **Execution environments:** Removed from core, reintroduced as executor plugins. The workflows plugin dispatches to them; the core doesn't know or care.
@@ -264,7 +264,7 @@ Accumulated architectural decisions from design conversations, in chronological 
 16. **Competitive positioning.** Opax is the data layer beneath observability platforms (Braintrust, Langfuse), not a direct competitor. Ship the spec, make evals expressive enough for them to consume Opax data. Expand upward only after the spec wins.
 17. **Hook conflict strategy.** Wrapper script pattern: `opax init` installs thin wrapper hooks that back up pre-existing hooks (as `post-commit.pre-opax`), run the original first, then run Opax's hook async (fire-and-forget). For husky/lefthook users, Opax detects the hook manager and adds itself to the user's hook config. `opax init --no-hooks` skips installation entirely; session capture falls back to explicit MCP calls only.
 18. **No session deduplication.** Every session is distinct — different agent, different model, different framing. No dedup logic, no similarity scoring. Store everything, return everything.
-19. **Local cross-repo queries via SQLite ATTACH DATABASE.** Each repo has its own SQLite database. Cross-repo queries possible locally via `ATTACH DATABASE` (open multiple repo databases simultaneously). Not a primary feature but available for power users. Formal cross-repo is hosted-tier (Postgres materializes across repos). For explicit cross-boundary transfer, use the `create_handover` tool.
+19. **Local cross-repo queries via SQLite ATTACH DATABASE.** Each repo has its own SQLite database. Cross-repo queries possible locally via `ATTACH DATABASE` (open multiple repo databases simultaneously). Not a primary feature but available for power users. Formal cross-repo is hosted-tier (Postgres materializes across repos). For explicit cross-boundary transfer, use `search_sessions` and `get_session` to pull context from the source repo.
 20. **Search interface forward-compatibility.** `SearchStrategy` interface abstracts the search backend. Phase 0 ships `FTS5Strategy` only. `SearchOptions` includes a `search_mode` field (`keyword | semantic | hybrid`, default `keyword`); `semantic` and `hybrid` reserved but unimplemented until Phase 3. Embedding model choice deferred — landscape too volatile.
 21. **Plugin discovery via conventions.** First-party plugins are built into the `opax` binary in Phase 0. Community plugins use `opax-plugin-`* naming. Discovery via search. No custom registry. If curation matters later, a lightweight JSON listing on `opax.dev` supplements without changing the install mechanism.
 22. **Lazy sync on first read.** `post-merge` hook sets a dirty flag (touch `.git/opax/dirty`) — zero-cost staleness signal. SDK checks the flag on read, syncs transparently if stale. Progress callback for large deltas. No background process, no manual step, no daemon.

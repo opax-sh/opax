@@ -121,7 +121,6 @@ At projected volumes (5-developer team):
 |------------|---------------|-------------------------------|
 | Sessions | 4,500 | < 1 month |
 | Saves | 4,500 | < 1 month |
-| Context artifacts | 1,200 | 2 months |
 | Workflows | ~200 | 10+ months |
 | Actions | ~900 | 2-3 months |
 
@@ -135,7 +134,7 @@ Sessions and saves cross into painful territory within the first month. Flat dir
 
 Shard on first 2 hex chars of SHA-256 of the full record ID.
 
-- `ctx_01JQXYZ...` → `sha256("ctx_01JQXYZ...")[:2]` → e.g. `a3/`
+- `ses_01JQXYZ...` → `sha256("ses_01JQXYZ...")[:2]` → e.g. `a3/`
 - **256 buckets**, uniformly distributed regardless of creation time
 - Matches Entire.io's approach
 - Deterministic: same ID always maps to same shard
@@ -145,7 +144,7 @@ Shard on first 2 hex chars of SHA-256 of the full record ID.
 
 Shard on first 2 chars of the ULID portion (after type prefix + underscore).
 
-- `ctx_01JQXYZ...` → `01/`
+- `ses_01JQXYZ...` → `01/`
 - **1,024 buckets** (32² Crockford base32 characters)
 - Distribution is time-correlated — ULID first chars rotate slowly, so recent records cluster
 - Human-readable: you can roughly tell when a shard's records were created

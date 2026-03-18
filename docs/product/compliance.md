@@ -29,7 +29,7 @@ Four layers of regulation are converging, each with different requirements but s
 | Article | Requirement | Opax Mapping |
 |---|---|---|
 | Article 9 | Risk management system | Risk classification metadata on artifacts |
-| Article 10 | Data governance | Source tracking on all context artifacts |
+| Article 10 | Data governance | Source tracking on all session archives |
 | Article 11 | Technical documentation | Session archives + workflow logs |
 | Article 12 | Record-keeping (automatic logging) | Session archives, commit notes, workflow events — **strongest card** |
 | Article 13 | Transparency | Agent identification via notes/trailers |
@@ -186,7 +186,7 @@ privacy:
 **Behavior in compliance mode:**
 - Individual session archives compact into daily summaries after 30d (as normal)
 - Daily summaries are **never deleted** — moved to the archive repo after 90d
-- Context artifacts are retained for the full compliance period
+- Session archives are retained for the full compliance period
 - Workflow logs, gate records, and notes are retained for the full compliance period
 - `opax storage compact` respects the minimum retention floor
 

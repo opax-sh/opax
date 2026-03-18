@@ -25,9 +25,7 @@ Custom refs:        refs/opax/{purpose}
 
 Annotated tags:     opax/{plugin-defined}
 
-Commit trailers:    Opax-Session: {session-id}
-                    Opax-Agent: {agent-identifier}
-                    Opax-Duration: {seconds}
+Commit trailers:    Opax-Save: {save-id}
 ```
 
 The `opax/` prefix is configurable but defaults to `opax/`. All data is stored on the single `opax/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/v1/ext-{name}/`. Extension plugins choose their own ID prefixes (avoiding first-party prefixes) and follow the same sharding convention.
@@ -107,6 +105,7 @@ sessions/a3/ses_01JQXYZ.../
   "files_changed": 12,
   "lines_added": 340,
   "lines_removed": 45,
+  "files_touched": ["src/auth/pkce.ts", "src/auth/oauth.ts"],
   "content_hash": "e5f6g7h8...",
   "privacy": {
     "tier": "team",
@@ -119,6 +118,8 @@ sessions/a3/ses_01JQXYZ.../
 ```
 
 Bulk content (transcript, diff) is stored in content-addressed storage, referenced by `content_hash`. The `summary.md` stays on the branch (small, useful for quick inspection).
+
+`files_touched` is extracted from agent tool calls in session logs (JSONL). Phase 0 reconstructs this from agent logs passively (Approach A). Forward-compatible with Phase 1+ snapshot-based tracking — an optional `snapshot_hash` field can be added later without structural changes.
 
 ### 2.4 Saves (Commit-Anchored)
 
@@ -138,8 +139,10 @@ saves/7f/sav_01JQXYZ.../
   "id": "sav_01JQXYZ...",
   "version": 1,
   "commit_hash": "abc1234def5678...",
-  "session_id": "ses_01JQXYZ...",
-  "agent": "claude-code",
+  "sessions": [
+    { "id": "ses_01JQXYZ...", "attribution": "file_overlap" },
+    { "id": "ses_01JQABC...", "attribution": "temporal" }
+  ],
   "branch": "feature/auth-implementation",
   "created_at": "2026-03-13T11:15:00Z",
   "files_in_commit": ["src/auth/pkce.ts", "src/auth/oauth.ts"],
@@ -152,6 +155,12 @@ saves/7f/sav_01JQXYZ.../
   }
 }
 ```
+
+**Save/session relationship is many-to-many.** A save can link to multiple sessions (e.g., two agents contributed files in the same commit), and a session can be linked to multiple saves (a long session producing several commits).
+
+**Attribution types:**
+- `file_overlap` — the session's `files_touched` overlaps with the save's `files_in_commit`. Primary attribution signal.
+- `temporal` — the session was active on the same branch near the time of the commit, but no file overlap was detected. Secondary/fallback signal.
 
 ---
 
@@ -207,20 +216,16 @@ feat: implement OAuth2 PKCE flow
 
 Implements the authorization code flow with PKCE.
 
-Opax-Session: ses_01JQXYZ...
-Opax-Agent: claude-code
-Opax-Duration: 2700
+Opax-Save: sav_01JQXYZ...
 ```
 
 
-| Trailer         | Value             | Purpose                                |
-| --------------- | ----------------- | -------------------------------------- |
-| `Opax-Session`  | Session ID        | Links commit to session archive        |
-| `Opax-Agent`    | Agent identifier  | Which agent produced this commit       |
-| `Opax-Duration` | Seconds (integer) | Time from session start to this commit |
+| Trailer      | Value   | Purpose                                            |
+| ------------ | ------- | -------------------------------------------------- |
+| `Opax-Save`  | Save ID | Links commit to save, which fans out to sessions   |
 
 
-Plugins may define additional trailers (e.g., `Opax-Stage`, `Opax-Workflow`).
+The trailer is minimal — just the save ID. Agent identity and duration live on the session records linked from the save, not on the commit itself. Plugins may define additional trailers (e.g., `Opax-Stage`, `Opax-Workflow`).
 
 Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (`--no-trailers`), session linkage falls back to git notes via `refs/opax/notes/sessions` — functional but mutable.
 
@@ -268,6 +273,7 @@ CREATE TABLE opax_sessions (
   files_changed INTEGER,
   lines_added INTEGER,
   lines_removed INTEGER,
+  files_touched TEXT,  -- JSON array of file paths from agent tool calls
   tags TEXT,  -- JSON array
   summary TEXT,  -- session summary, materialized from summary.md
   content_hash TEXT,  -- SHA-256 hash referencing CAS
@@ -292,8 +298,7 @@ CREATE TABLE opax_saves (
   id TEXT PRIMARY KEY,
   version INTEGER NOT NULL,
   commit_hash TEXT NOT NULL,
-  session_id TEXT REFERENCES opax_sessions(id),
-  agent TEXT,
+  sessions TEXT,  -- JSON array of {id, attribution} objects
   branch TEXT,
   content_hash TEXT,
   privacy_tier TEXT DEFAULT 'team',
@@ -304,7 +309,6 @@ CREATE TABLE opax_saves (
   created_at TEXT NOT NULL
 );
 CREATE INDEX idx_saves_commit ON opax_saves(commit_hash);
-CREATE INDEX idx_saves_session ON opax_saves(session_id);
 
 -- Git notes (all namespaces)
 CREATE TABLE opax_notes (
@@ -521,30 +525,4 @@ The memory plugin exposes MCP tools for querying session data. Schemas below are
 }
 ```
 
-### handover (create_handover)
-
-```json
-{
-  "name": "create_handover",
-  "description": "Generate a structured handover document for transitioning work to another agent or platform.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "next_task": { "type": "string" },
-      "include_sessions": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "Session IDs to include. Default: auto-select recent sessions on current branch.",
-        "default": ["auto"]
-      },
-      "detail_level": {
-        "type": "string",
-        "enum": ["brief", "standard", "comprehensive"],
-        "default": "standard"
-      }
-    },
-    "required": ["next_task"]
-  }
-}
-```
 

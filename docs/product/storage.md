@@ -50,9 +50,8 @@ Bulk content does NOT benefit from git storage:
 | Data Type | Volume | Calculation |
 |---|---|---|
 | Session metadata | ~420 KB | 30 × 14 KB |
-| Context metadata | ~80 KB | 8 × 10 KB |
 | Workflow + action metadata | ~60 KB | 30 × 2 KB |
-| **Total** | **~560 KB/day** | |
+| **Total** | **~480 KB/day** | |
 
 ### Team Scaling — Git Tier (5 developers)
 
@@ -95,7 +94,7 @@ All Opax data lives on a single orphan branch: `opax/v1`. Records are organized 
 
 Per-record orphan branches don't scale:
 - 5 developers × 30 sessions/day × 30 days = **4,500 branches/month** just for sessions
-- Add context artifacts, workflows, actions: easily **6,000-8,000 branches/month**
+- Add workflows, actions: easily **5,000-6,000 branches/month**
 - GitHub soft limit: ~10,000 branches
 
 A single branch:
@@ -225,7 +224,6 @@ storage:
   retention:
     hot: 30d
     warm: 90d
-    context: 365d
     compliance_floor: 3y  # data archived, never deleted
 ```
 
@@ -352,7 +350,6 @@ Archive:        s3://opax-archive/repo (warm + cold)
 
 Data Type        Count    Git Size    CAS Size    Oldest
 ─────────────── ─────── ─────────── ─────────── ──────────
-Context          234     2.3 MB      8.2 MB      2026-01-15
 Sessions         1,847   24.0 MB     489.2 MB    2026-01-15
 Saves      1,847   1.8 MB      —           2026-01-15
 Workflows        67      0.5 MB      6.4 MB      2026-02-01

@@ -70,9 +70,9 @@ opax
 ├── doctor                       # Check installation and repo health
 ├── db
 │   └── rebuild                  # Rebuild SQLite from git state
-├── context
-│   ├── list                     # List context records
-│   └── get [id]                 # Get a specific context record
+├── session
+│   ├── list                     # List session archives
+│   └── get [id]                 # Get a specific session archive
 └── storage
     └── stats                    # Show storage statistics
 ```
@@ -142,7 +142,7 @@ A persistent `--json` flag is registered on the root command and inherited by al
 
 ### `internal/mcp` — MCP Server
 
-**Responsibility:** MCP server using stdio transport. Secondary interface for web-only agent platforms (Claude web, ChatGPT) that lack shell access. Exposes five tools: `persist_context`, `query_context`, `list_context`, `get_context`, `create_handover`.
+**Responsibility:** MCP server using stdio transport. Secondary interface for web-only agent platforms (Claude web, ChatGPT) that lack shell access. Exposes three tools: `search_sessions`, `list_sessions`, `get_session`.
 
 **Key dependencies:** Official MCP Go SDK
 
@@ -165,10 +165,9 @@ A persistent `--json` flag is registered on the root command and inherited by al
 The primary value plugin. Enables context to flow between agent sessions across platforms (Claude Code, Codex, ChatGPT, etc.).
 
 **What it owns:**
-- Context artifact CRUD (conversations, decisions, architecture notes, handovers)
 - Session archive storage
-- Save creation (commit-anchored)
-- Search over context and sessions
+- Save creation (commit-anchored, with session attribution via file overlap + temporal proximity)
+- Search over sessions
 
 **Compiled into the binary** — not a subprocess plugin. Uses the same `OpaxPlugin` interface as community plugins, so it can be replaced or extended.
 
@@ -177,7 +176,7 @@ The primary value plugin. Enables context to flow between agent sessions across 
 1. Create `plugins/{name}/{name}.go`
 2. Implement the `OpaxPlugin` interface (namespace registration, schema extensions, CLI subcommands, MCP tools)
 3. Import and register the plugin in `cmd/opax/main.go`
-4. The plugin owns its namespace under `opax/v1/` and its SQLite tables
+4. The plugin owns its namespace under `opax/v1/` and creates SQLite views over `opax_notes` (not new tables)
 
 ---
 
@@ -277,7 +276,7 @@ Agent session ends
 ### Read Path (Query → Response)
 
 ```
-CLI `opax search` or MCP `query_context`
+CLI `opax search` or MCP `search_sessions`
     → SQLite FTS5 full-text search
     → Return metadata (id, title, tags, timestamps)
     → If full content requested: fetch from CAS using content_hash

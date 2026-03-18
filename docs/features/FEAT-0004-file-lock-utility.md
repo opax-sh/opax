@@ -241,23 +241,23 @@ The lock package fails closed. Downstream consumers should surface `ErrStaleLock
 
 ## Acceptance Criteria
 
-- [ ] `Acquire` creates lock file atomically using `O_CREATE|O_EXCL`
-- [ ] `Acquire` writes valid JSON with current PID and RFC 3339 timestamp
-- [ ] `Acquire` returns `*Lock` on success
-- [ ] `Acquire` blocks and retries up to timeout when lock is held by another process
-- [ ] `Acquire` returns `ErrLockTimeout` after timeout, with holder PID in error message
-- [ ] `Acquire` detects stale lock (dead PID), leaves the lock file in place, returns `ErrStaleLock`
-- [ ] `Acquire` treats invalid/empty lock file content as in-progress initialization during `initializationGrace`, then returns `ErrStaleLock` without deleting the file
-- [ ] `Release` removes the lock file
-- [ ] `Release` is idempotent — calling twice does not error
-- [ ] `Release` on nil receiver does not panic
-- [ ] Lock file does not exist after successful `Release`
-- [ ] Concurrent test: two processes race to acquire — exactly one succeeds immediately, the other acquires after the first releases
-- [ ] Timeout test: acquire lock, attempt second acquire with 100ms timeout — returns `ErrLockTimeout` within reasonable margin
-- [ ] Stale lock test: create lock file with non-existent PID, acquire returns `ErrStaleLock` and leaves the file in place
-- [ ] Deferred cleanup: `defer lock.Release()` works correctly in normal return and early-return error paths
-- [ ] Error messages follow `fmt.Errorf("lock: ...")` convention
-- [ ] Table-driven tests, stdlib `testing` only
+- [x] `Acquire` creates lock file atomically using `O_CREATE|O_EXCL`
+- [x] `Acquire` writes valid JSON with current PID and RFC 3339 timestamp
+- [x] `Acquire` returns `*Lock` on success
+- [x] `Acquire` blocks and retries up to timeout when lock is held by another process
+- [x] `Acquire` returns `ErrLockTimeout` after timeout, with holder PID in error message
+- [x] `Acquire` detects stale lock (dead PID), leaves the lock file in place, returns `ErrStaleLock`
+- [x] `Acquire` treats invalid/empty lock file content as in-progress initialization during `initializationGrace`, then returns `ErrStaleLock` without deleting the file
+- [x] `Release` removes the lock file
+- [x] `Release` is idempotent — calling twice does not error
+- [x] `Release` on nil receiver does not panic
+- [x] Lock file does not exist after successful `Release`
+- [x] Concurrent test: two processes race to acquire — exactly one succeeds immediately, the other acquires after the first releases
+- [x] Timeout test: acquire lock, attempt second acquire with 100ms timeout — returns `ErrLockTimeout` within reasonable margin
+- [x] Stale lock test: create lock file with non-existent PID, acquire returns `ErrStaleLock` and leaves the file in place
+- [x] Deferred cleanup: `defer lock.Release()` works correctly in normal return and early-return error paths
+- [x] Error messages follow `fmt.Errorf("lock: ...")` convention
+- [x] Table-driven tests, stdlib `testing` only
 
 ---
 
@@ -284,7 +284,7 @@ The lock package fails closed. Downstream consumers should surface `ErrStaleLock
 
 ---
 
-## Implementation Plan
+## Implementation Checklist
 
 ### Scope
 
@@ -292,129 +292,129 @@ Implement `internal/lock/` as the single advisory file lock utility for all Phas
 
 ### API To Implement
 
-- [ ] Create `internal/lock/lock.go`
-- [ ] Create `internal/lock/lock_test.go`
-- [ ] Define `type Lock struct { path string; file *os.File }`
-- [ ] Define `func Acquire(path string, timeout time.Duration) (*Lock, error)`
-- [ ] Define `func (l *Lock) Release() error`
-- [ ] Define `ErrLockTimeout`
-- [ ] Define `ErrStaleLock`
-- [ ] Define `DefaultTimeout = 5 * time.Second`
-- [ ] Define `pollInterval = 50 * time.Millisecond`
+- [x] Create `internal/lock/lock.go`
+- [x] Create `internal/lock/lock_test.go`
+- [x] Define `type Lock struct { path string; file *os.File }`
+- [x] Define `func Acquire(path string, timeout time.Duration) (*Lock, error)`
+- [x] Define `func (l *Lock) Release() error`
+- [x] Define `ErrLockTimeout`
+- [x] Define `ErrStaleLock`
+- [x] Define `DefaultTimeout = 5 * time.Second`
+- [x] Define `pollInterval = 50 * time.Millisecond`
 
 ### Acquire Implementation
 
-- [ ] Validate that the parent directory of `path` exists before trying to create the lock file
-- [ ] Return a clear `lock: ...` error when the directory does not exist
-- [ ] Attempt lock acquisition with `os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)`
-- [ ] On success, write JSON lock metadata containing:
-  - [ ] Current PID from `os.Getpid()`
-  - [ ] UTC acquisition timestamp in RFC 3339 format
-- [ ] Return `*Lock` with the open file handle preserved
-- [ ] If writing lock metadata fails after file creation:
-  - [ ] Close the file
-  - [ ] Remove the partially created lock file
-  - [ ] Return a wrapped `lock: ...` error
+- [x] Validate that the parent directory of `path` exists before trying to create the lock file
+- [x] Return a clear `lock: ...` error when the directory does not exist
+- [x] Attempt lock acquisition with `os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)`
+- [x] On success, write JSON lock metadata containing:
+  - [x] Current PID from `os.Getpid()`
+  - [x] UTC acquisition timestamp in RFC 3339 format
+- [x] Return `*Lock` with the open file handle preserved
+- [x] If writing lock metadata fails after file creation:
+  - [x] Close the file
+  - [x] Remove the partially created lock file
+  - [x] Return a wrapped `lock: ...` error
 
 ### Existing Lock Handling
 
-- [ ] When `os.OpenFile` returns `os.ErrExist`, inspect the current lock file
-- [ ] Read and parse lock file contents into an internal `lockInfo` struct
-- [ ] Treat invalid JSON as stale lock state
-- [ ] Treat empty file content as stale lock state
-- [ ] If lock PID matches `os.Getpid()`, return `lock: already held by current process`
-- [ ] Check process liveness with `syscall.Kill(pid, 0)`
-- [ ] If PID is dead (`syscall.ESRCH`):
-  - [ ] Remove the stale lock file
-  - [ ] Return `ErrStaleLock`
-- [ ] If PID is alive:
-  - [ ] Sleep for `pollInterval`
-  - [ ] Retry until timeout expires
-- [ ] On timeout, return a wrapped error that includes:
-  - [ ] Lock path
-  - [ ] Holder PID
-  - [ ] Holder acquisition timestamp
-  - [ ] `ErrLockTimeout`
+- [x] When `os.OpenFile` returns `os.ErrExist`, inspect the current lock file
+- [x] Read and parse lock file contents into an internal `lockInfo` struct
+- [x] Treat invalid JSON as stale lock state after `initializationGrace`
+- [x] Treat empty file content as stale lock state after `initializationGrace`
+- [x] If lock PID matches `os.Getpid()`, return `lock: already held by current process`
+- [x] Check process liveness with `syscall.Kill(pid, 0)`
+- [x] If PID is dead (`syscall.ESRCH`):
+  - [x] Leave the lock file in place
+  - [x] Return `ErrStaleLock`
+- [x] If PID is alive:
+  - [x] Sleep for `pollInterval`
+  - [x] Retry until timeout expires
+- [x] On timeout, return a wrapped error that includes:
+  - [x] Lock path
+  - [x] Holder PID
+  - [x] Holder acquisition timestamp
+  - [x] `ErrLockTimeout`
 
 ### Timeout Semantics
 
-- [ ] Support zero timeout as a single immediate acquisition attempt
-- [ ] Do not sleep/retry when timeout is zero
-- [ ] Preserve last-known holder metadata for timeout error messages
-- [ ] Use `errors.Is(err, ErrLockTimeout)` compatibility in returned timeout errors
+- [x] Support zero timeout as a single immediate acquisition attempt
+- [x] Do not sleep/retry when timeout is zero
+- [x] Preserve last-known holder metadata for timeout error messages
+- [x] Use `errors.Is(err, ErrLockTimeout)` compatibility in returned timeout errors
 
 ### Release Implementation
 
-- [ ] Return `nil` when called on a nil receiver
-- [ ] Return `nil` when `l.file == nil`
-- [ ] Close the underlying file handle
-- [ ] Remove the lock file from disk
-- [ ] Set `l.file = nil` after release
-- [ ] Make double release safe and non-failing
-- [ ] Return wrapped `lock: ...` errors when close/remove fail
-- [ ] If both close and remove fail, return an error that preserves both failure points
+- [x] Return `nil` when called on a nil receiver
+- [x] Return `nil` when `l.file == nil`
+- [x] Close the underlying file handle
+- [x] Remove the lock file from disk
+- [x] Set `l.file = nil` after release
+- [x] Make double release safe and non-failing
+- [x] Return wrapped `lock: ...` errors when close/remove fail
+- [x] If both close and remove fail, return an error that preserves both failure points
 
 ### Internal Helpers
 
-- [ ] Add an unexported `lockInfo` struct with `pid` and `acquired_at` JSON fields
-- [ ] Add a helper to write lock metadata JSON
-- [ ] Add a helper to read/parse lock metadata JSON
-- [ ] Add a helper to determine whether a PID is alive
-- [ ] Add a helper for stale lock cleanup if it simplifies `Acquire`
+- [x] Add an unexported `lockInfo` struct with `pid` and `acquired_at` JSON fields
+- [x] Add a helper to write lock metadata JSON
+- [x] Add a helper to read/parse lock metadata JSON
+- [x] Add a helper to determine whether a PID is alive
+- [x] Keep stale lock handling fail-closed with no cleanup helper
 
 ### Test Execution Checklist
 
 #### Core lifecycle
 
-- [ ] `TestAcquireSuccess`
-- [ ] `TestAcquireAndRelease`
-- [ ] `TestReleaseIdempotent`
-- [ ] `TestReleaseNilReceiver`
+- [x] `TestAcquireSuccess`
+- [x] `TestAcquireAndRelease`
+- [x] `TestReleaseIdempotent`
+- [x] `TestReleaseNilReceiver`
 
 #### Timeout behavior
 
-- [ ] `TestAcquireTimeout`
-- [ ] `TestAcquireTimeoutMessage`
-- [ ] Assert returned error matches `ErrLockTimeout`
-- [ ] Assert timeout error mentions path and holder PID
-- [ ] Assert timing is within a reasonable margin, not an exact duration
+- [x] `TestAcquireTimeout`
+- [x] `TestAcquireTimeoutMessage`
+- [x] Assert returned error matches `ErrLockTimeout`
+- [x] Assert timeout error mentions path and holder PID
+- [x] Assert timing is within a reasonable margin, not an exact duration
 
 #### Stale and corrupt lock handling
 
-- [ ] `TestAcquireStaleLock`
-- [ ] `TestAcquireInvalidLockFile`
-- [ ] `TestAcquireEmptyLockFile`
-- [ ] Verify stale lock file is removed before returning `ErrStaleLock`
+- [x] `TestAcquireStaleLock`
+- [x] `TestAcquireInvalidLockFile`
+- [x] `TestAcquireEmptyLockFile`
+- [x] Verify stale/corrupt lock file remains in place when returning `ErrStaleLock`
 
 #### Edge cases
 
-- [ ] `TestAcquireReentrant`
-- [ ] `TestAcquireZeroTimeout`
-- [ ] `TestAcquireNoDirectory`
-- [ ] `TestLockFileContent`
-- [ ] `TestDeferPattern`
+- [x] `TestAcquireReentrant`
+- [x] `TestAcquireZeroTimeout`
+- [x] `TestAcquireNoDirectory`
+- [x] `TestLockFileContent`
+- [x] `TestDeferPattern`
 
 #### Concurrency
 
-- [ ] `TestAcquireConcurrent`
-- [ ] Coordinate two goroutines with channels
-- [ ] Verify first goroutine acquires immediately
-- [ ] Verify second goroutine blocks while first holds the lock
-- [ ] Verify second goroutine acquires after first releases
-- [ ] Verify only one lock holder exists at a time
+- [x] `TestAcquireConcurrent`
+- [x] Use a helper process to verify cross-process serialization
+- [x] Verify first process acquires immediately
+- [x] Verify second process blocks while first holds the lock
+- [x] Verify second process acquires after first releases
+- [x] Verify only one lock holder exists at a time
 
 ### Verification
 
-- [ ] `go test ./internal/lock/...` passes
-- [ ] `make test` passes
-- [ ] `make lint` passes
-- [ ] Error messages follow the `fmt.Errorf("lock: ...")` convention
-- [ ] Implementation stays stdlib-only
-- [ ] Package is ready for reuse by E1.3 and E4.1 write paths
+- [x] `go test ./internal/lock/...` passes
+- [x] `make test` passes
+- [x] `make lint` passes
+- [x] Error messages follow the `fmt.Errorf("lock: ...")` convention
+- [x] Implementation stays stdlib-only
+- [x] Package is ready for reuse by E1.3 and E4.1 write paths
 
 ### Notes and Clarifications
 
-- [ ] Use method form `func (l *Lock) Release() error` to match this feature spec and intended `defer lk.Release()` usage
-- [ ] Treat this feature doc as authoritative over the older epic doc if they conflict on release shape
-- [ ] Clarify that the required parent directory for `.git/opax.lock` is `.git`, not `.git/opax/`
-- [ ] Do not add logging to the lock package; stale-lock visibility should come from the caller after receiving `ErrStaleLock`
+- [x] Use method form `func (l *Lock) Release() error` to match this feature spec and intended `defer lk.Release()` usage
+- [x] Treat this feature doc as authoritative over the older epic doc if they conflict on release shape
+- [x] Clarify that the required parent directory for `.git/opax.lock` is `.git`, not `.git/opax/`
+- [x] Do not add logging to the lock package; stale-lock visibility should come from the caller after receiving `ErrStaleLock`

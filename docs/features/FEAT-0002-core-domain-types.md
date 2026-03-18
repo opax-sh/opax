@@ -1,7 +1,7 @@
 # FEAT-0002 — Core Domain Types
 
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
-**Status:** Not started
+**Status:** Completed
 **Dependencies:** FEAT-0001 (needs `oklog/ulid`)
 **Dependents:** E1 (Git Plumbing), E2 (CAS), E3 (Privacy Pipeline), E4 (Write Path), E5 (SQLite), E7 (Capture), E8 (Memory Plugin) — virtually everything imports `internal/types`
 

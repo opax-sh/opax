@@ -45,3 +45,68 @@ func TestULIDMonotonic(t *testing.T) {
 		}
 	}
 }
+
+func TestNewSessionID(t *testing.T) {
+	id := types.NewSessionID()
+	s := id.String()
+	if !strings.HasPrefix(s, "ses_") {
+		t.Errorf("NewSessionID() = %q, want prefix \"ses_\"", s)
+	}
+	suffix := s[4:]
+	if len(suffix) != 26 {
+		t.Errorf("NewSessionID() suffix length = %d, want 26", len(suffix))
+	}
+	if _, err := ulid.ParseStrict(suffix); err != nil {
+		t.Errorf("NewSessionID() suffix not a valid ULID: %v", err)
+	}
+}
+
+func TestNewSaveID(t *testing.T) {
+	id := types.NewSaveID()
+	s := id.String()
+	if !strings.HasPrefix(s, "sav_") {
+		t.Errorf("NewSaveID() = %q, want prefix \"sav_\"", s)
+	}
+	suffix := s[4:]
+	if len(suffix) != 26 {
+		t.Errorf("NewSaveID() suffix length = %d, want 26", len(suffix))
+	}
+	if _, err := ulid.ParseStrict(suffix); err != nil {
+		t.Errorf("NewSaveID() suffix not a valid ULID: %v", err)
+	}
+}
+
+func TestSessionIDValidate(t *testing.T) {
+	valid := types.NewSessionID()
+	tests := []struct {
+		name    string
+		id      types.SessionID
+		wantErr bool
+	}{
+		{"valid", valid, false},
+		{"empty", "", true},
+		{"wrong prefix sav", types.SessionID("sav_" + types.NewULID().String()), true},
+		{"no prefix", types.SessionID(types.NewULID().String()), true},
+		{"invalid ulid chars", types.SessionID("ses_IIIIIIIIIIIIIIIIIIIIIIIIII"), true},
+		{"too short suffix", types.SessionID("ses_SHORT"), true},
+		{"just prefix", types.SessionID("ses_"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.id.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSessionIDTimestamp(t *testing.T) {
+	before := time.Now()
+	id := types.NewSessionID()
+	after := time.Now()
+	ts := id.Timestamp()
+	if ts.Before(before.Add(-time.Second)) || ts.After(after.Add(time.Second)) {
+		t.Errorf("Timestamp() = %v, want within [%v, %v]", ts, before, after)
+	}
+}

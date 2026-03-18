@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/opax-sh/opax/internal/config"
 	"github.com/opax-sh/opax/internal/types"
@@ -100,5 +101,48 @@ func TestDefault(t *testing.T) {
 	}
 	if cfg.Trailers.Prefix != "Opax-" {
 		t.Errorf("Trailers.Prefix = %q, want %q", cfg.Trailers.Prefix, "Opax-")
+	}
+}
+
+func TestParseDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "days", input: "30d", want: 30 * 24 * time.Hour},
+		{name: "single day", input: "1d", want: 24 * time.Hour},
+		{name: "weeks", input: "12w", want: 12 * 7 * 24 * time.Hour},
+		{name: "months", input: "3m", want: 3 * 30 * 24 * time.Hour},
+		{name: "years", input: "1y", want: 365 * 24 * time.Hour},
+		{name: "three years", input: "3y", want: 3 * 365 * 24 * time.Hour},
+		{name: "empty string", input: "", wantErr: true},
+		{name: "no unit", input: "30", wantErr: true},
+		{name: "no number", input: "d", wantErr: true},
+		{name: "invalid unit", input: "30x", wantErr: true},
+		{name: "negative", input: "-5d", wantErr: true},
+		{name: "zero", input: "0d", wantErr: true},
+		{name: "float", input: "1.5d", wantErr: true},
+		{name: "invalid string", input: "invalid", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := config.ParseDuration(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseDuration(%q) = %v, want error", tt.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseDuration(%q) error = %v", tt.input, err)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseDuration(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
 	}
 }

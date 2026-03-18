@@ -1,6 +1,10 @@
 package config
 
 import (
+	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/opax-sh/opax/internal/types"
 )
 
@@ -73,6 +77,42 @@ type CaptureConfig struct {
 type TrailersConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Prefix  string `yaml:"prefix"`
+}
+
+// ParseDuration parses a human-readable duration string.
+// Supported formats: "30d", "12w", "3m", "1y"
+// Units: d=day(24h), w=week(7d), m=month(30d), y=year(365d)
+func ParseDuration(s string) (time.Duration, error) {
+	if len(s) < 2 {
+		return 0, fmt.Errorf("config: invalid duration %q", s)
+	}
+
+	unit := s[len(s)-1]
+	numStr := s[:len(s)-1]
+
+	n, err := strconv.Atoi(numStr)
+	if err != nil {
+		return 0, fmt.Errorf("config: invalid duration %q: %w", s, err)
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("config: invalid duration %q: must be positive", s)
+	}
+
+	var multiplier time.Duration
+	switch unit {
+	case 'd':
+		multiplier = 24 * time.Hour
+	case 'w':
+		multiplier = 7 * 24 * time.Hour
+	case 'm':
+		multiplier = 30 * 24 * time.Hour
+	case 'y':
+		multiplier = 365 * 24 * time.Hour
+	default:
+		return 0, fmt.Errorf("config: invalid duration %q: unknown unit %q", s, string(unit))
+	}
+
+	return time.Duration(n) * multiplier, nil
 }
 
 // Default returns the SDK default configuration.

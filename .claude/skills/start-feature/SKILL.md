@@ -1,11 +1,11 @@
 ---
 name: start-feature
-description: Use when starting implementation of a feature that has an existing PRD in docs/features/ — creates branch, generates implementation plan, opens draft PR, then stops for review
+description: Use when starting implementation of a feature that has an existing PRD in docs/features/ — creates branch, marks PRD as in-progress, opens draft PR, then stops for review
 ---
 
 # start-feature
 
-Orchestrates feature branch setup with an implementation plan and draft PR. Wraps `superpowers:writing-plans` with Opax git/PR ceremony. The agent creates everything needed for implementation, then **stops** so a human can review before any code is written.
+Procedural skill that creates a feature branch, marks the PRD as in-progress, and opens a draft PR. No planning happens here — that's a separate step the human initiates.
 
 ## Prerequisites
 
@@ -25,12 +25,12 @@ digraph start_feature {
     resolve [label="Resolve feature ID\nfrom argument"];
     validate [label="Validate PRD exists\non main"];
     branch [label="Create branch\nfeat-XXXX-name"];
-    plan [label="Invoke\nwriting-plans"];
-    commit [label="Commit updated PRD\nwith plan"];
+    prd [label="Mark PRD\nin-progress"];
+    commit [label="Scaffolding commit"];
     push [label="Push + draft PR"];
     stop [label="STOP\nHandoff to human" shape=doublecircle];
 
-    resolve -> validate -> branch -> plan -> commit -> push -> stop;
+    resolve -> validate -> branch -> prd -> commit -> push -> stop;
 }
 ```
 
@@ -65,18 +65,21 @@ If any check fails, print the corresponding error message from Prerequisites and
 git checkout -b feat-XXXX-name main
 ```
 
-### 4. Generate Implementation Plan
+### 4. Mark PRD In-Progress
 
-- Read the PRD content from the checked-out branch.
-- Invoke `superpowers:writing-plans` with the PRD content as context.
-- The plan output goes **into the PRD file** as an `## Implementation Plan` section appended at the end — NOT into `docs/superpowers/plans/`.
-- The plan should reference the PRD's acceptance criteria and design decisions.
+Edit the PRD file (`docs/features/FEAT-XXXX-*.md`) to update its status to `in-progress`. The PRD should have a `status` field in its frontmatter or a **Status** heading — update whichever is present. If neither exists, add a status line near the top:
 
-### 5. Commit the Updated PRD
+```markdown
+**Status:** in-progress
+```
+
+Do not add an implementation plan, do not restructure the document. One-line status change only.
+
+### 5. Scaffolding Commit
 
 ```bash
 git add docs/features/FEAT-XXXX-*.md
-git commit -m "docs: add implementation plan for FEAT-XXXX"
+git commit -m "docs(FEAT-XXXX): mark in-progress"
 ```
 
 ### 6. Push and Create Draft PR
@@ -85,12 +88,11 @@ git commit -m "docs: add implementation plan for FEAT-XXXX"
 git push -u origin feat-XXXX-name
 gh pr create --draft --title "FEAT-XXXX: <feature title>" --body "$(cat <<'PREOF'
 ## Summary
-Implementation branch for FEAT-XXXX. Plan is in the PRD — review before approving.
+Implementation branch for FEAT-XXXX.
 
 ## Status
 - [x] PRD reviewed
-- [x] Implementation plan written
-- [ ] Human review of plan
+- [ ] Implementation plan written
 - [ ] Implementation started
 PREOF
 )"
@@ -101,16 +103,15 @@ PREOF
 Print this message and **do nothing else**:
 
 ```
---- Feature branch ready for review ---
+--- Feature branch ready ---
 
 Branch:  feat-XXXX-name
 PR:      <PR URL>
 PRD:     docs/features/FEAT-XXXX-name.md
 
 Next steps:
-1. Review the implementation plan in the PRD
-2. Approve or request changes on the draft PR
-3. When ready, run `executing-plans` in a new session to begin implementation
+1. Run /plan (or invoke writing-plans) to generate the implementation plan
+2. When ready, run /execute-plan in a new session to begin implementation
 ```
 
 ## Error Handling
@@ -125,16 +126,13 @@ Next steps:
 
 ## Hard Stop Enforcement
 
-**This skill creates the workspace. It does NOT implement the feature.**
+**This skill creates the workspace. It does NOT plan or implement the feature.**
 
 Red flags — if you catch yourself doing any of these, STOP immediately:
 
-- Writing any Go code (or any implementation code)
+- Invoking `writing-plans` or any planning skill
+- Writing any implementation code
 - Creating files outside of `docs/`
 - Running `go build`, `go test`, or `make` commands
-- Modifying `go.mod` or `go.sum`
-- Thinking "let me just start one small task from the plan"
-- Skipping the draft PR step
+- Thinking "let me just add a quick plan section"
 - Continuing after printing the handoff message
-
-The human reviews the plan. The human decides when to start. Implementation happens in a separate session using `executing-plans`.

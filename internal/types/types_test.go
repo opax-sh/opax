@@ -110,3 +110,28 @@ func TestSessionIDTimestamp(t *testing.T) {
 		t.Errorf("Timestamp() = %v, want within [%v, %v]", ts, before, after)
 	}
 }
+
+func TestSaveIDValidate(t *testing.T) {
+	valid := types.NewSaveID()
+	tests := []struct {
+		name    string
+		id      types.SaveID
+		wantErr bool
+	}{
+		{"valid", valid, false},
+		{"empty", "", true},
+		{"wrong prefix ses", types.SaveID("ses_" + types.NewULID().String()), true},
+		{"no prefix", types.SaveID(types.NewULID().String()), true},
+		{"invalid ulid chars", types.SaveID("sav_IIIIIIIIIIIIIIIIIIIIIIIIII"), true},
+		{"too short suffix", types.SaveID("sav_SHORT"), true},
+		{"just prefix", types.SaveID("sav_"), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.id.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

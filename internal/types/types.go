@@ -81,6 +81,9 @@ func validateID(id, prefix string) error {
 }
 
 // extractTimestamp extracts the millisecond-precision timestamp from an ID suffix.
+// Returns the zero time.Time if the ID is too short or the suffix is not a valid ULID.
+// Callers should invoke Validate() before calling Timestamp() if they need to distinguish
+// an invalid ID from a valid ID with a zero timestamp.
 func extractTimestamp(id string, prefixLen int) time.Time {
 	if len(id) <= prefixLen {
 		return time.Time{}

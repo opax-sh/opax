@@ -54,26 +54,26 @@ var dbRebuildCmd = &cobra.Command{
 	},
 }
 
-var contextCmd = &cobra.Command{
-	Use:   "context",
-	Short: "Manage agent context records",
+var sessionCmd = &cobra.Command{
+	Use:   "session",
+	Short: "Manage agent session records",
 }
 
-var contextListCmd = &cobra.Command{
+var sessionListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List context records",
+	Short: "List session records",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("opax: context list not yet implemented")
+		fmt.Println("opax: session list not yet implemented")
 		return nil
 	},
 }
 
-var contextGetCmd = &cobra.Command{
+var sessionGetCmd = &cobra.Command{
 	Use:   "get [id]",
-	Short: "Get a specific context record",
+	Short: "Get a specific session record",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("opax: context get not yet implemented")
+		fmt.Println("opax: session get not yet implemented")
 		return nil
 	},
 }
@@ -110,14 +110,14 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(dbCmd)
-	rootCmd.AddCommand(contextCmd)
+	rootCmd.AddCommand(sessionCmd)
 	rootCmd.AddCommand(storageCmd)
 	rootCmd.AddCommand(doctorCmd)
 
 	// Nested subcommands
 	dbCmd.AddCommand(dbRebuildCmd)
-	contextCmd.AddCommand(contextListCmd)
-	contextCmd.AddCommand(contextGetCmd)
+	sessionCmd.AddCommand(sessionListCmd)
+	sessionCmd.AddCommand(sessionGetCmd)
 	storageCmd.AddCommand(storageStatsCmd)
 }
 

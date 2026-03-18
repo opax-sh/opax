@@ -4,13 +4,13 @@
 **Version:** 1.0.0
 **Date:** March 17, 2026
 **Dependencies:** None (root of dependency graph)
-**Dependents:** E1 (Git Plumbing), E2 (CAS), E3 (Privacy Pipeline) — all Phase 0 epics
+**Dependents:** E1 (Git Plumbing), E2 (CAS), E3 (Hygiene Pipeline) — all Phase 0 epics
 
 ---
 
 ## Goal
 
-Types, config, dependencies, and write serialization. Nothing user-visible but every downstream epic (E1–E12) depends on this. After E0, the project compiles, tests pass, and the foundational abstractions are in place for git plumbing, storage, privacy, and capture work to begin.
+Types, config, dependencies, and write serialization. Nothing user-visible but every downstream epic (E1–E12) depends on this. After E0, the project compiles, tests pass, and the foundational abstractions are in place for git plumbing, storage, hygiene (scrubbing), and capture work to begin.
 
 ---
 
@@ -45,7 +45,7 @@ Add all Phase 0 dependencies to `go.mod`. These are chosen to maintain the singl
 
 ### Description
 
-Define the foundational types that every downstream package imports. These are derived directly from the JSON schemas in data-spec.md and the PrivacyMetadata structure in privacy.md. All types are pure data — no methods with side effects, no database access, no git operations.
+Define the foundational types that every downstream package imports. These are derived directly from the JSON schemas in data-spec.md and the hygiene metadata structure in hygiene.md. All types are pure data — no methods with side effects, no database access, no git operations.
 
 ### New File
 
@@ -94,15 +94,6 @@ const (
     AgentUnknown    AgentPlatform = "unknown"
 )
 
-// PrivacyTier controls access classification
-type PrivacyTier string
-
-const (
-    TierPublic  PrivacyTier = "public"
-    TierTeam    PrivacyTier = "team"
-    TierPrivate PrivacyTier = "private"
-)
-
 // ScrubMode determines how detected secrets are handled
 type ScrubMode string
 
@@ -142,7 +133,7 @@ type SessionMetadata struct {
     LinesRemoved    int             `json:"lines_removed,omitempty"`
     FilesTouched    []string        `json:"files_touched,omitempty"`
     ContentHash     string          `json:"content_hash,omitempty"`
-    Privacy         PrivacyMetadata `json:"privacy"`
+    Hygiene         HygieneMetadata `json:"hygiene"`
     Tags            []string        `json:"tags,omitempty"`
 }
 ```
@@ -164,7 +155,7 @@ type SaveMetadata struct {
     CreatedAt     time.Time            `json:"created_at"`
     FilesInCommit []string             `json:"files_in_commit,omitempty"`
     ContentHash   string               `json:"content_hash,omitempty"`
-    Privacy       PrivacyMetadata      `json:"privacy"`
+    Hygiene       HygieneMetadata      `json:"hygiene"`
 }
 ```
 
@@ -179,16 +170,13 @@ type NoteContent struct {
 }
 ```
 
-**PrivacyMetadata** — mirrors the structure from privacy.md:
+**HygieneMetadata** — mirrors hygiene.md and data-spec.md:
 
 ```go
-type PrivacyMetadata struct {
-    Tier                 PrivacyTier `json:"tier"`
-    Scrubbed             bool        `json:"scrubbed"`
-    ScrubVersion         string      `json:"scrub_version,omitempty"`
-    ScrubDetectors       []string    `json:"scrub_detectors,omitempty"`
-    Encrypted            bool        `json:"encrypted"`
-    EncryptionRecipients []string    `json:"encryption_recipients,omitempty"`
+type HygieneMetadata struct {
+    Scrubbed       bool     `json:"scrubbed"`
+    ScrubVersion   string   `json:"scrub_version,omitempty"`
+    ScrubDetectors []string `json:"scrub_detectors,omitempty"`
 }
 ```
 
@@ -201,7 +189,7 @@ type PrivacyMetadata struct {
 - [ ] `PrefixRegistry` detects collisions — registering `ses_` twice returns an error
 - [ ] JSON round-trip: marshal a `SessionMetadata` → unmarshal → deep equal
 - [ ] JSON output matches the schemas in data-spec.md (field names, nesting)
-- [ ] `PrivacyMetadata` defaults: `tier: "team"`, `scrubbed: false`, `encrypted: false`
+- [ ] `HygieneMetadata` defaults: `scrubbed: false`, empty optional fields omitted in JSON
 - [ ] All enum types have a `Valid() bool` method
 - [ ] Table-driven tests, stdlib `testing` only, no testify
 
@@ -219,26 +207,25 @@ Implement the configuration system that every downstream package reads from. Con
 
 ### OpaxConfig Struct
 
-Top-level config with four sections, matching the YAML structure from privacy.md:
+Top-level config with four sections, matching the YAML structure from hygiene.md:
 
 ```go
 type OpaxConfig struct {
-    Privacy  PrivacyConfig  `yaml:"privacy"`
+    Hygiene  HygieneConfig  `yaml:"hygiene"`
     Storage  StorageConfig  `yaml:"storage"`
     Capture  CaptureConfig  `yaml:"capture"`
     Trailers TrailersConfig `yaml:"trailers"`
 }
 ```
 
-### Privacy Config Section
+### Hygiene Config Section
 
-Derived from the YAML example in privacy.md:
+Derived from the YAML example in hygiene.md:
 
 ```go
-type PrivacyConfig struct {
-    Version  int            `yaml:"version"`
+type HygieneConfig struct {
+    Version   int             `yaml:"version"`
     Scrubbing ScrubbingConfig `yaml:"scrubbing"`
-    DefaultTiers DefaultTiersConfig `yaml:"default_tiers"`
 }
 
 type ScrubbingConfig struct {
@@ -260,12 +247,6 @@ type EntropyConfig struct {
     Enabled   bool    `yaml:"enabled"`
     Threshold float64 `yaml:"threshold"`  // default 4.5
     MinLength int     `yaml:"min_length"` // default 20
-}
-
-type DefaultTiersConfig struct {
-    Session  PrivacyTier `yaml:"session"`  // default: team
-    Workflow PrivacyTier `yaml:"workflow"` // default: team
-    Action   PrivacyTier `yaml:"action"`   // default: team
 }
 ```
 
@@ -314,7 +295,7 @@ Merge strategy: deep merge at the section level. Arrays replace, not append (e.g
 ### SDK Defaults
 
 ```yaml
-privacy:
+hygiene:
   version: 1
   scrubbing:
     mode: redact
@@ -333,10 +314,6 @@ privacy:
       threshold: 4.5
       min_length: 20
     allowlist: []
-  default_tiers:
-    session: team
-    workflow: team
-    action: team
 
 storage:
   retention:
@@ -356,10 +333,10 @@ trailers:
 The config system must reject invalid configuration rather than silently accepting it:
 
 - **Unknown keys** — any YAML key not in the struct definition is an error (use `yaml.v3` strict mode or equivalent)
-- **Enum values** — `mode` must be one of `redact`, `reject`, `warn`. Tier values must be `public`, `team`, `private`
+- **Enum values** — `scrubbing.mode` must be one of `redact`, `reject`, `warn`
 - **Pattern compilation** — every entry in `custom_patterns` must have a valid Go regex in its `pattern` field. Compile at load time, reject if invalid
 - **Duration parsing** — retention values like `30d`, `90d`, `3y` must parse to valid durations
-- **Non-empty required fields** — `privacy.version` must be set, `scrubbing.mode` must be set
+- **Non-empty required fields** — `hygiene.version` must be > 0; `scrubbing.mode` validated when present
 
 ### Public API
 
@@ -482,7 +459,7 @@ These are explicitly out of scope for EPIC-0000. Violating these boundaries is s
 
 - **No git operations** — E1 owns all git plumbing
 - **No SQLite operations** — E5 owns the materialized view
-- **No privacy pipeline logic** — E3 owns detection and scrubbing; E0 only defines the `PrivacyMetadata` struct and config types
+- **No hygiene pipeline logic** — E3 owns detection and scrubbing; E0 only defines the `Hygiene` / `HygieneMetadata` struct and config types
 - **No CLI commands** — E9 owns command wiring
 - **No capture logic** — E7 owns session reading
 - **No file I/O beyond config loading and lock files** — CAS is E2, branch writes are E1
@@ -518,7 +495,7 @@ These are explicitly out of scope for EPIC-0000. Violating these boundaries is s
 
 - [ ] All four features (FEAT-0001–FEAT-0004) have acceptance criteria met
 - [ ] Types align with data-spec.md JSON schemas — field names match exactly
-- [ ] Config structure aligns with privacy.md YAML examples
+- [ ] Config structure aligns with hygiene.md YAML examples
 - [ ] Lock semantics match architecture invariant #7 (write serialization via `.git/opax.lock`)
 - [ ] No scope creep into E1+ territory (no git ops, no SQLite, no CLI commands)
 - [ ] `CGO_ENABLED=0 make build` succeeds

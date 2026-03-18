@@ -191,27 +191,6 @@ func TestPrefixRegistryValidation(t *testing.T) {
 	}
 }
 
-func TestPrivacyTierValid(t *testing.T) {
-	tests := []struct {
-		tier  types.PrivacyTier
-		valid bool
-	}{
-		{types.TierPublic, true},
-		{types.TierTeam, true},
-		{types.TierPrivate, true},
-		{"", false},
-		{"unknown", false},
-		{"Public", false}, // case-sensitive
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.tier), func(t *testing.T) {
-			if got := tt.tier.Valid(); got != tt.valid {
-				t.Errorf("PrivacyTier(%q).Valid() = %v, want %v", tt.tier, got, tt.valid)
-			}
-		})
-	}
-}
-
 func TestScrubModeValid(t *testing.T) {
 	tests := []struct {
 		mode  types.ScrubMode
@@ -266,10 +245,7 @@ func TestSessionJSON(t *testing.T) {
 		LinesRemoved: 5,
 		FilesTouched: []string{"main.go", "types.go"},
 		ContentHash:  "deadbeef",
-		Privacy: types.Privacy{
-			Tier:     types.TierTeam,
-			Scrubbed: false,
-		},
+		Hygiene: types.Hygiene{Scrubbed: false},
 		Tags: []string{"feature"},
 	}
 
@@ -295,8 +271,7 @@ func TestSessionFieldNames(t *testing.T) {
 		StartedAt:    time.Now().UTC(),
 		ExitCode:     &exitCode,
 		FilesTouched: []string{"foo.go"},
-		Privacy: types.Privacy{
-			Tier:           types.TierPrivate,
+		Hygiene: types.Hygiene{
 			Scrubbed:       true,
 			ScrubVersion:   "v1",
 			ScrubDetectors: []string{"regex"},
@@ -317,7 +292,7 @@ func TestSessionFieldNames(t *testing.T) {
 func TestSessionExitCode(t *testing.T) {
 	zero := 0
 	// nil exit_code should be omitted
-	s1 := types.Session{ID: types.NewSessionID(), Version: 1, Provider: "x", StartedAt: time.Now(), Privacy: types.Privacy{Tier: types.TierTeam}}
+	s1 := types.Session{ID: types.NewSessionID(), Version: 1, Provider: "x", StartedAt: time.Now(), Hygiene: types.Hygiene{}}
 	data1, _ := json.Marshal(s1)
 	if strings.Contains(string(data1), "exit_code") {
 		t.Errorf("nil ExitCode should be omitted, got: %s", data1)
@@ -342,7 +317,7 @@ func TestSaveJSON(t *testing.T) {
 		Branch:        "main",
 		CreatedAt:     time.Now().UTC().Truncate(time.Second),
 		FilesInCommit: []string{"go.mod", "main.go"},
-		Privacy:       types.Privacy{Tier: types.TierTeam},
+		Hygiene:       types.Hygiene{},
 	}
 	data, err := json.Marshal(original)
 	if err != nil {
@@ -370,7 +345,7 @@ func TestSessionEndedAtZeroValue(t *testing.T) {
 		Version:   1,
 		Provider:  "x",
 		StartedAt: time.Now(),
-		Privacy:   types.Privacy{Tier: types.TierTeam},
+		Hygiene:   types.Hygiene{},
 	}
 	data, err := json.Marshal(s)
 	if err != nil {
@@ -403,15 +378,12 @@ func TestNoteJSON(t *testing.T) {
 	}
 }
 
-func TestPrivacyDefaults(t *testing.T) {
-	var p types.Privacy
-	if p.Tier != "" {
-		t.Errorf("zero Privacy.Tier = %q, want empty string", p.Tier)
+func TestHygieneDefaults(t *testing.T) {
+	var h types.Hygiene
+	if h.Scrubbed {
+		t.Error("zero Hygiene.Scrubbed = true, want false")
 	}
-	if p.Scrubbed {
-		t.Error("zero Privacy.Scrubbed = true, want false")
-	}
-	if p.Tier.Valid() {
-		t.Error("empty PrivacyTier.Valid() = true, want false")
+	if len(h.ScrubDetectors) != 0 {
+		t.Errorf("zero Hygiene.ScrubDetectors = %v, want empty", h.ScrubDetectors)
 	}
 }

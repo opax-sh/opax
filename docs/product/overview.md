@@ -4,7 +4,20 @@
 **Date:** March 17, 2026
 **Status:** Architecture & Planning
 **Note:** Incorporates architectural decisions from design conversations post-v1
-**Companion Specs:** Git Data Spec · Privacy & Security · Compliance Framework · Storage & Scaling
+**Companion Specs:** Git Data Spec · Hygiene (secret scrubbing) · Compliance Framework · Storage & Scaling
+
+---
+
+## Current Implementation Snapshot
+
+As of this document version, the repository has completed foundation work but not the full Phase 0 product loop.
+
+- Implemented: dependency setup, `internal/types`, `internal/config`, and related tests.
+- Scaffolded: `internal/git`, `internal/store`, `internal/cas`, `internal/capture`, `internal/hygiene`, `internal/mcp`, `internal/plugin`, `plugins/memory`.
+- CLI today: `opax version`, `opax init`, `opax search`, `opax db rebuild`, `opax session list/get`, `opax storage stats`, `opax doctor`.
+- Current command status: most non-version commands are present but still stubs.
+
+The rest of this PRD describes the target architecture and phased delivery plan.
 
 ---
 
@@ -57,7 +70,7 @@ The core is deliberately thin. It owns data infrastructure; all domain logic liv
 3. **SQLite Materialized View** — A local database at `.git/opax/opax.db` derived from git state. Provides FTS5 full-text search, structured queries, and typed views over all Opax data. Always rebuildable from git via `opax db rebuild`. Zero-infrastructure — single file, no server, ships with the SDK. WAL mode for concurrent reads. See companion: *Storage Spec*.
 4. **Storage Lifecycle** — Two-tier storage model: metadata and references in git, bulk content (transcripts, diffs, action logs) in content-addressed storage referenced by hash. Tiered retention across hot (same repo) → warm (archive remote) → cold (git bundles on object storage). See companion: *Storage Spec*.
 5. **Passive Capture Engine** — Operates outside agent sessions, reading agent-native storage after the fact. Agent-specific plugins know where each agent stores transcripts and session data (e.g., Claude Code's JSONL files, Codex session logs). Hooks detect sessions on commit. This is the primary recording mechanism — zero agent cooperation required. MCP server provides read-only query access for web-only platforms.
-6. **Privacy Pipeline** — Layered content processing: secret scrubbing (Phase 0) → encryption at rest (Phase 1). Scrubbing always precedes encryption — secrets are never stored even in encrypted form. `PrivacyMetadata` type on all artifacts from Phase 0 to enable Phase 1 without rearchitecting. See companion: *Privacy & Security Spec*.
+6. **Hygiene pipeline** — Secret detection and scrubbing on all content before storage. Scrubbing always precedes any future encryption — secrets are never stored even in encrypted form. `hygiene` metadata on session/save records records scrubbing applied at write time. See companion: *Hygiene Spec*.
 
 ### First-Party Plugins (open-source, replaceable)
 
@@ -93,7 +106,7 @@ Plugins implement a common `OpaxPlugin` interface that provides: namespace regis
 - **Event sourcing –** Git serves as the write-ahead log and distribution mechanism. SQLite serves as the materialized view optimized for queries. The database is always derivable from git. `git clone` + `opax init` always works.
 - **Commit-anchored –** The primary question is "what context produced this commit?" not "what commits did this session produce?" Saves are created on commit. Session data hangs off the save. This produces a natural audit trail — developers and auditors trace backward from code to context.
 - **Passive capture first –** Agents should not need to actively cooperate with Opax. The system reads agent-native storage after the fact. MCP is a complement for platforms without shell access, not the primary integration.
-- **Scrubbing before encryption** – Secrets must never be stored even in encrypted form. The privacy pipeline order is non-negotiable.
+- **Scrubbing before encryption** – Secrets must never be stored even in encrypted form. The hygiene pipeline order is non-negotiable.
 - **Layered metadata** – A single `Opax-Save` trailer on each commit provides a tamper-proof link to the session archive. Detailed metadata lives in git notes, which are invisible by default and do not modify the commit hash. Teams that need stronger audit guarantees can enable signed commits on Opax data branches, pin archive hashes in trailers, or enforce branch protection rules on `opax/` refs. Opax provides the tooling for each layer. Teams choose what they need.
 - **Plugin ownership –** The workflows YAML format belongs to the plugin, not the spec. Keeps the core thin and the plugin replaceable. Same principle applies to eval criteria, adapter schemas, and executor configs.
 - **Open spec first –** The git data format is implementable by third-party tools without the Opax SDK. This is the key ecosystem and defensibility lever: network effects come from the spec, not the runtime.
@@ -119,7 +132,7 @@ Opax advances state reactively. The workflow state machine only moves forward wh
 
 Every agent-produced commit is annotated with structured metadata via git notes and an `Opax-Save` trailer: which agent produced it, which workflow stage, how long the session took. Passive capture ensures session recording without agent cooperation. Review assessments, test results, and eval scores are also notes. The complete provenance chain from initial prompt to production code is captured as immutable, cryptographically-linked git history.
 
-For commits without any agent session (pure human coding), no session record exists — this is correct behavior since compliance concerns AI system logging, not all development.
+For commits without any agent session (pure human coding), no session archive exists — this is correct behavior since compliance concerns AI system logging, not all development.
 
 This maps directly to EU AI Act Article 12 (record-keeping), Article 14 (human oversight via gates), NIST AI RMF, and ISO 42001 requirements. Developers don't do extra compliance work — the audit trail is a natural byproduct of using the product. See companion: *Compliance Framework*.
 
@@ -184,7 +197,7 @@ Agent session recording that works across platforms. Passive capture + CLI searc
 **Deliverables:**
 
 - `opax` binary (Go) — single binary containing CLI, SDK, plugin system, passive capture, MCP server
-- Core: git data operations (go-git), SQLite materialization (modernc.org/sqlite), FTS5 search, plugin loading, privacy pipeline (scrubbing), content-addressed storage
+- Core: git data operations (go-git), SQLite materialization (modernc.org/sqlite), FTS5 search, plugin loading, hygiene pipeline (scrubbing), content-addressed storage
 - Memory plugin (built-in): session recording, search
 - Passive capture: Claude Code hook integration + Codex session reader. Save creation on commit. Transcript normalization into common format.
 - CLI: `opax init`, `opax search`, `opax session list/get`, `opax db rebuild`, `opax storage stats`, `opax doctor`
@@ -203,7 +216,7 @@ Git-event-driven workflow sequencing, structured evaluation scoring, and basic c
 - Workflows plugin — YAML parsing/validation, trigger evaluation, stage dispatch, gate management, git hook integration.
 - Evals plugin — eval scoring, LLM-as-judge framework, git note attachment.
 - Local process executor + Docker executor.
-- Privacy Phase 1: encryption at rest via `age`, per-tier recipient key sets.
+- Future phase: encryption at rest and authorization (spec TBD before ship).
 - Basic compliance reporting: Article 12 evidence generation (session count, agent summary, human oversight records). EU AI Act enforces August 2026.
 - Additional agent capture plugins: Cursor, Gemini CLI.
 - CLI extensions for workflow management (`opax workflow start/status/approve/reject`).
@@ -256,8 +269,8 @@ Accumulated architectural decisions from design conversations, in chronological 
 8. **Plugin naming:** "Workflows" not "orchestration" or "dispatch." The name avoids undermining the positioning.
 9. **No daemon locally.** Fire-and-forget. Hooks fire async. No persistent process. Every feature requiring a persistent process is on the paid hosted tier.
 10. **Trailers by default, notes as fallback.** Trailers are the default session linkage mechanism — immutable, tamper-evident, cryptographically bound to the commit hash. Notes are used for post-commit plugin data (test results, review verdicts, eval scores) that arrives after the commit. Teams that object to modified commit messages can disable trailers via `--no-trailers`, falling back to notes for session linkage.
-11. **Privacy pipeline order:** Scrub → encrypt. Non-negotiable. `PrivacyMetadata` type ships in Phase 0 to scaffold Phase 1 encryption.
-12. **Encryption tool:** `age`. Per-tier recipient key sets. Hybrid approach: encrypt content files, leave `metadata.json` plaintext to preserve git delta compression.
+11. **Hygiene pipeline order:** Scrub before any future encrypt. Non-negotiable. Session/save records carry `hygiene` metadata for scrubbing provenance.
+12. **Future encryption:** Spec TBD before ship (e.g. `age`, content-focused encryption to limit git/CAS overhead).
 13. **Execution environments:** Removed from core, reintroduced as executor plugins. The workflows plugin dispatches to them; the core doesn't know or care.
 14. **Compliance as natural byproduct.** Session archives = Article 12 record-keeping. Workflow gates = Article 14 human oversight. Git integrity = tamper-evidence. Don't bolt on a compliance layer; the data model serves compliance structurally.
 15. **Retention tensions.** PRD compaction (30d individual / 90d summary) conflicts with EU AI Act (system lifetime) and Colorado (3 years). Compliance mode overrides compaction settings. Addressed in *Storage & Scaling Spec* and *Compliance Framework*.
@@ -276,7 +289,7 @@ Accumulated architectural decisions from design conversations, in chronological 
 28. **Artifacts are not Opax's purview.** Opax records what happened during development (sessions, decisions, reviews), not the artifacts development produces. ADRs, architecture docs, etc. belong in docs/ folder, Notion, Jira, Linear. Session records capture that discussions happened and link to resulting artifacts.
 29. **Plugin strategy discipline.** Memory is the real product and deserves deep investment. Workflows, evals, executors are thin reference implementations. Adapters are the high-leverage investment after memory. If a first-party plugin feels like its own product, stop and build an adapter instead.
 30. **Archive tiers.** Hot (0-30d): same repo, consolidated branch, SQLite. Warm (30-90d): git remote (archive repo), fetch on demand. Cold (90+d): git bundles on object storage, download + fetch from bundle. Hosted: git alternates (shared object pool), Postgres query surface.
-31. **Encryption as access control.** age encryption with named recipient groups (not just public/team/private tiers). Encryption is the primary auth mechanism — works everywhere, git-native, no server required. Server-side ref filtering at hosted tier for defense-in-depth.
+31. **Future access control.** Encryption or other authorization TBD before ship; external CAS/storage boundaries enforce access at deployment time today.
 32. **Competitive position vs Entire.io.** "Entire captures what agents did. Opax connects what agents know." Don't compete on session recording — compete on the read path, unified query surface, compliance, and adapter ecosystem. Learn from their architecture; build what they structurally cannot.
 
 ---
@@ -287,8 +300,6 @@ Accumulated architectural decisions from design conversations, in chronological 
 | Document                  | Scope                                                                                        |
 | ------------------------- | -------------------------------------------------------------------------------------------- |
 | *Git Data Spec*           | Namespace conventions, git primitives, schemas, SQLite materialization, plugin registration  |
-| *Privacy & Security Spec* | Secret scrubbing pipeline, encryption at rest, PrivacyMetadata, git compression implications |
+| *Hygiene Spec* | Secret scrubbing pipeline, config, metadata on records |
 | *Compliance Framework*    | EU AI Act, NIST AI RMF, ISO 42001, Colorado AI Act mapping, data model additions, retention  |
 | *Storage & Scaling Spec*  | Two-tier storage, capacity math, archive tiers, StorageBackend interface, compaction         |
-
-

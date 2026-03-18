@@ -11,7 +11,7 @@
 
 Every downstream package needs shared type definitions for record IDs, metadata structs, privacy classification, and enums. Without a single canonical source, packages would define their own incompatible representations, leading to conversion boilerplate, JSON serialization mismatches, and subtle bugs.
 
-These types are the contract between the git data layer and the rest of the system. Their JSON serialization must match the schemas defined in data-spec.md exactly — field names, nesting, and omitempty behavior.
+These types are the contract between the git data layer and the rest of the system. Their JSON serialization must match the schemas defined in data-spec.md exactly: field names, nesting, and omitempty behavior.
 
 ---
 
@@ -23,10 +23,12 @@ These types are the contract between the git data layer and the rest of the syst
 
 ### Files
 
-| File | Contents |
-|---|---|
-| `internal/types/types.go` | All type definitions, constructors, validation methods |
-| `internal/types/types_test.go` | Table-driven tests |
+
+| File                           | Contents                                               |
+| ------------------------------ | ------------------------------------------------------ |
+| `internal/types/types.go`      | All type definitions, constructors, validation methods |
+| `internal/types/types_test.go` | Table-driven tests                                     |
+
 
 ---
 
@@ -43,6 +45,7 @@ func NewULID() ulid.ULID
 ```
 
 **Requirements:**
+
 - Entropy source: `crypto/rand` (not `math/rand` — IDs must be unpredictable)
 - Monotonic: two calls in the same millisecond produce lexicographically ordered results
 - Thread-safe: safe for concurrent use from multiple goroutines
@@ -83,6 +86,7 @@ func NewSaveID() SaveID
 ```
 
 **Validation rules:**
+
 - Must start with the correct prefix (`ses_` or `sav_`)
 - Suffix after prefix must be a valid 26-character Crockford Base32 ULID
 - Empty string is invalid
@@ -100,7 +104,8 @@ type PrefixRegistry struct { /* unexported fields */ }
 func NewPrefixRegistry() *PrefixRegistry
 
 // Register claims a prefix for a plugin. Returns an error if the prefix
-// is already registered (collision detection).
+// is already registered (collision detection). The error message names
+// both the existing owner and the new registrant for easy debugging.
 // Prefix must end with "_" and be 3-5 characters (e.g., "wrk_", "act_").
 func (r *PrefixRegistry) Register(prefix, owner string) error
 
@@ -109,6 +114,7 @@ func (r *PrefixRegistry) IsRegistered(prefix string) bool
 ```
 
 **Validation rules for prefixes:**
+
 - Must end with `_`
 - Length 3–5 characters (including the trailing `_`)
 - Lowercase alphanumeric only before the `_`
@@ -118,138 +124,130 @@ func (r *PrefixRegistry) IsRegistered(prefix string) bool
 
 Each enum is a named `string` type with defined constants and a `Valid() bool` method.
 
-#### AgentPlatform
-
-Identifies which agent produced a session. Values from data-spec.md:
-
-| Constant | Value | Description |
-|---|---|---|
-| `AgentClaudeCode` | `"claude-code"` | Anthropic Claude Code CLI |
-| `AgentCodex` | `"codex"` | OpenAI Codex CLI |
-| `AgentAider` | `"aider"` | Aider |
-| `AgentGoose` | `"goose"` | Block Goose |
-| `AgentUnknown` | `"unknown"` | Unrecognized agent |
-
 #### PrivacyTier
 
 Controls access classification. Values from privacy.md:
 
-| Constant | Value | Description |
-|---|---|---|
-| `TierPublic` | `"public"` | Visible to anyone with repo access |
-| `TierTeam` | `"team"` | Visible to team members (default) |
-| `TierPrivate` | `"private"` | Visible only to the session owner |
+
+| Constant      | Value       | Description                        |
+| ------------- | ----------- | ---------------------------------- |
+| `TierPublic`  | `"public"`  | Visible to anyone with repo access |
+| `TierTeam`    | `"team"`    | Visible to team members (default)  |
+| `TierPrivate` | `"private"` | Visible only to the session owner  |
+
 
 #### ScrubMode
 
 Determines how detected secrets are handled. Values from privacy.md:
 
-| Constant | Value | Description |
-|---|---|---|
-| `ScrubRedact` | `"redact"` | Replace with `[REDACTED:{type}]` (default) |
-| `ScrubReject` | `"reject"` | Refuse to store content |
-| `ScrubWarn` | `"warn"` | Store but log a warning |
 
-#### Attribution
+| Constant      | Value      | Description                                |
+| ------------- | ---------- | ------------------------------------------ |
+| `ScrubRedact` | `"redact"` | Replace with `[REDACTED:{type}]` (default) |
+| `ScrubReject` | `"reject"` | Refuse to store content                    |
+| `ScrubWarn`   | `"warn"`   | Store but log a warning                    |
+
+
+#### AttrReason
 
 Describes how a session was linked to a save. Values from data-spec.md:
 
-| Constant | Value | Description |
-|---|---|---|
+
+| Constant          | Value            | Description                                             |
+| ----------------- | ---------------- | ------------------------------------------------------- |
 | `AttrFileOverlap` | `"file_overlap"` | Session's files_touched overlaps save's files_in_commit |
-| `AttrTemporal` | `"temporal"` | Session active on same branch near commit time |
+| `AttrTemporal`    | `"temporal"`     | Session active on same branch near commit time          |
 
-### 5. Metadata Structs
 
-These structs define the canonical Go representation of record metadata. Their JSON serialization must match data-spec.md schemas field-for-field.
+### 5. Record Structs
 
-#### PrivacyMetadata
+These structs define the canonical Go representation of Opax records. Their JSON serialization must match data-spec.md schemas field-for-field. Struct names are domain nouns — the package qualifier provides context (e.g., `types.Session`, `types.Save`).
+
+#### Privacy
 
 Present on every artifact. Source: privacy.md `PrivacyMetadata` interface.
 
 ```go
-type PrivacyMetadata struct {
-    Tier                 PrivacyTier `json:"tier"`
-    Scrubbed             bool        `json:"scrubbed"`
-    ScrubVersion         string      `json:"scrub_version,omitempty"`
-    ScrubDetectors       []string    `json:"scrub_detectors,omitempty"`
-    Encrypted            bool        `json:"encrypted"`
-    EncryptionRecipients []string    `json:"encryption_recipients,omitempty"`
+type Privacy struct {
+    Tier           PrivacyTier `json:"tier"`
+    Scrubbed       bool        `json:"scrubbed"`
+    ScrubVersion   string      `json:"scrub_version,omitempty"`
+    ScrubDetectors []string    `json:"scrub_detectors,omitempty"`
 }
 ```
 
 **Default values (for new records in Phase 0):**
+
 - `Tier`: `"team"`
 - `Scrubbed`: `false`
-- `Encrypted`: `false` (always false in Phase 0)
 
-#### SessionMetadata
+#### Session
 
 Mirrors `sessions/{shard}/{id}/metadata.json`. Source: data-spec.md section 2.2.
 
 ```go
-type SessionMetadata struct {
-    ID              SessionID       `json:"id"`
-    Version         int             `json:"version"`
-    Agent           AgentPlatform   `json:"agent"`
-    Model           string          `json:"model,omitempty"`
-    Branch          string          `json:"branch,omitempty"`
-    StartedAt       time.Time       `json:"started_at"`
-    EndedAt         time.Time       `json:"ended_at,omitempty"`
-    DurationSeconds int             `json:"duration_seconds,omitempty"`
-    ExitCode        *int            `json:"exit_code,omitempty"`
-    Commits         []string        `json:"commits,omitempty"`
-    FilesChanged    int             `json:"files_changed,omitempty"`
-    LinesAdded      int             `json:"lines_added,omitempty"`
-    LinesRemoved    int             `json:"lines_removed,omitempty"`
-    FilesTouched    []string        `json:"files_touched,omitempty"`
-    ContentHash     string          `json:"content_hash,omitempty"`
-    Privacy         PrivacyMetadata `json:"privacy"`
-    Tags            []string        `json:"tags,omitempty"`
+type Session struct {
+    ID              SessionID `json:"id"`
+    Version         int       `json:"version"`
+    Provider        string    `json:"provider"`
+    Model           string    `json:"model,omitempty"`
+    Branch          string    `json:"branch,omitempty"`
+    StartedAt       time.Time `json:"started_at"`
+    EndedAt         time.Time `json:"ended_at,omitempty"`
+    ExitCode        *int      `json:"exit_code,omitempty"`
+    FilesChanged    int       `json:"files_changed,omitempty"`
+    LinesAdded      int       `json:"lines_added,omitempty"`
+    LinesRemoved    int       `json:"lines_removed,omitempty"`
+    FilesTouched    []string  `json:"files_touched,omitempty"`
+    ContentHash     string    `json:"content_hash,omitempty"`
+    Privacy         Privacy   `json:"privacy"`
+    Tags            []string  `json:"tags,omitempty"`
 }
 ```
 
 **Design notes:**
+
+- `Provider` and `Model` follow the Vercel AI SDK convention: provider is the company (`"anthropic"`, `"openai"`, `"google"`), model is the specific model ID (`"claude-opus-4-6"`, `"o3-pro"`). Both are free-form strings — no enum. The combined identifier (`anthropic/claude-opus-4-6`) is derived, not stored
 - `ExitCode` is `*int` (pointer) so that `0` is distinguishable from "not set" in JSON (`omitempty` on `int` would drop `0`)
 - `Version` starts at `1` for all new records
 - `FilesTouched` is extracted from agent tool calls — the field name matches data-spec.md's `files_touched`
 - Time fields serialize as RFC 3339 (`time.Time` default JSON format)
 
-#### SessionAttribution
+#### Attribution
 
 Links a session to a save with an attribution reason.
 
 ```go
-type SessionAttribution struct {
-    ID          SessionID   `json:"id"`
-    Attribution Attribution `json:"attribution"`
+type Attribution struct {
+    SessionID SessionID  `json:"session_id"`
+    Reason    AttrReason `json:"reason"`
 }
 ```
 
-#### SaveMetadata
+#### Save
 
 Mirrors `saves/{shard}/{id}/metadata.json`. Source: data-spec.md section 2.4.
 
 ```go
-type SaveMetadata struct {
-    ID            SaveID               `json:"id"`
-    Version       int                  `json:"version"`
-    CommitHash    string               `json:"commit_hash"`
-    Sessions      []SessionAttribution `json:"sessions,omitempty"`
-    Branch        string               `json:"branch,omitempty"`
-    CreatedAt     time.Time            `json:"created_at"`
-    FilesInCommit []string             `json:"files_in_commit,omitempty"`
-    ContentHash   string               `json:"content_hash,omitempty"`
-    Privacy       PrivacyMetadata      `json:"privacy"`
+type Save struct {
+    ID            SaveID        `json:"id"`
+    Version       int           `json:"version"`
+    CommitHash    string        `json:"commit_hash"`
+    Sessions      []Attribution `json:"sessions,omitempty"`
+    Branch        string        `json:"branch,omitempty"`
+    CreatedAt     time.Time     `json:"created_at"`
+    FilesInCommit []string      `json:"files_in_commit,omitempty"`
+    ContentHash   string        `json:"content_hash,omitempty"`
+    Privacy       Privacy       `json:"privacy"`
 }
 ```
 
-#### NoteContent
+#### Note
 
 Generic note content for any namespace. Source: data-spec.md section 3.2.
 
 ```go
-type NoteContent struct {
+type Note struct {
     CommitHash string          `json:"commit_hash"`
     Namespace  string          `json:"namespace"`
     Content    json.RawMessage `json:"content"`
@@ -263,7 +261,7 @@ type NoteContent struct {
 
 ## Edge Cases
 
-- **Zero-value PrivacyMetadata** — Go zero values produce `{"tier":"","scrubbed":false,"encrypted":false}`. Callers constructing new records should use a constructor or explicitly set `Tier` to `TierTeam`. The `Valid()` method on `PrivacyTier` will catch empty strings.
+- **Zero-value Privacy** — Go zero values produce `{"tier":"","scrubbed":false}`. Callers constructing new records should use a constructor or explicitly set `Tier` to `TierTeam`. The `Valid()` method on `PrivacyTier` will catch empty strings.
 - **ULID timestamp precision** — ULIDs have millisecond precision. `Timestamp()` returns a `time.Time` with millisecond precision, not nanosecond.
 - **JSON field name casing** — data-spec.md uses `snake_case` for all JSON fields. Go struct tags must match exactly: `started_at`, not `startedAt`.
 - **Empty slices vs null** — Go marshals `nil` slices as `null` and empty slices as `[]`. With `omitempty`, both are omitted. This is correct for our schema (all list fields are optional).
@@ -274,46 +272,48 @@ type NoteContent struct {
 
 ## Acceptance Criteria
 
-- [ ] All types compile and are importable from `internal/types`
-- [ ] `NewSessionID()` returns an ID starting with `ses_` followed by a valid 26-char ULID
-- [ ] `NewSaveID()` returns an ID starting with `sav_` followed by a valid 26-char ULID
-- [ ] `Validate()` accepts valid IDs and rejects: empty string, wrong prefix, invalid ULID chars, wrong ULID length
-- [ ] `Timestamp()` returns a time within 1 second of generation time
-- [ ] Two ULIDs generated in the same millisecond are lexicographically ordered (monotonic)
-- [ ] `PrefixRegistry` pre-registers `ses_` and `sav_`
-- [ ] `PrefixRegistry.Register("ses_", "plugin")` returns an error (collision)
-- [ ] `PrefixRegistry.Register("wrk_", "workflows")` succeeds
-- [ ] Prefix validation: rejects `"no_underscore"`, `"AB_"` (uppercase), `"toolong__"` (>5 chars), `"x"` (<3 chars)
-- [ ] All enum `Valid()` methods return `true` for defined constants and `false` for empty string or unknown values
-- [ ] `SessionMetadata` JSON round-trip: marshal → unmarshal → deep equal
-- [ ] `SaveMetadata` JSON round-trip: marshal → unmarshal → deep equal
-- [ ] JSON field names match data-spec.md exactly (spot-check: `started_at`, `files_touched`, `commit_hash`, `scrub_version`)
-- [ ] `SessionMetadata` with `ExitCode` set to `0` serializes `"exit_code": 0` (not omitted)
-- [ ] `SessionMetadata` with `ExitCode` nil omits `exit_code` from JSON
-- [ ] `PrivacyMetadata` zero-value has `Tier` as empty string — `Valid()` returns false
-- [ ] Table-driven tests, stdlib `testing` only, no testify
+- All types compile and are importable from `internal/types`
+- `NewSessionID()` returns an ID starting with `ses_` followed by a valid 26-char ULID
+- `NewSaveID()` returns an ID starting with `sav_` followed by a valid 26-char ULID
+- `Validate()` accepts valid IDs and rejects: empty string, wrong prefix, invalid ULID chars, wrong ULID length
+- `Timestamp()` returns a time within 1 second of generation time
+- Two ULIDs generated in the same millisecond are lexicographically ordered (monotonic)
+- `PrefixRegistry` pre-registers `ses_` and `sav_`
+- `PrefixRegistry.Register("ses_", "plugin")` returns an error (collision)
+- `PrefixRegistry.Register("wrk_", "workflows")` succeeds
+- Prefix validation: rejects `"no_underscore"`, `"AB_"` (uppercase), `"toolong__"` (>5 chars), `"x"` (<3 chars)
+- All enum `Valid()` methods return `true` for defined constants and `false` for empty string or unknown values
+- `Session` JSON round-trip: marshal → unmarshal → deep equal
+- `Save` JSON round-trip: marshal → unmarshal → deep equal
+- JSON field names match data-spec.md exactly (spot-check: `started_at`, `files_touched`, `commit_hash`, `scrub_version`)
+- `Session` with `ExitCode` set to `0` serializes `"exit_code": 0` (not omitted)
+- `Session` with `ExitCode` nil omits `exit_code` from JSON
+- `Privacy` zero-value has `Tier` as empty string — `Valid()` returns false
+- Table-driven tests, stdlib `testing` only, no testify
 
 ---
 
 ## Test Plan
 
-| Test | What it verifies | Pass condition |
-|---|---|---|
-| `TestNewSessionID` | ID generation | Starts with `ses_`, suffix is valid ULID |
-| `TestNewSaveID` | ID generation | Starts with `sav_`, suffix is valid ULID |
-| `TestSessionIDValidate` | Validation (table-driven) | Accepts valid IDs, rejects malformed ones |
-| `TestSessionIDTimestamp` | Timestamp extraction | Within 1s of `time.Now()` at generation |
-| `TestULIDMonotonic` | Monotonic ordering | 100 sequential ULIDs are lexicographically sorted |
-| `TestPrefixRegistryPreregistered` | First-party prefixes | `ses_` and `sav_` are registered at construction |
-| `TestPrefixRegistryCollision` | Collision detection | Re-registering `ses_` returns error |
-| `TestPrefixRegistryValidation` | Prefix format rules | Rejects invalid prefix formats |
-| `TestAgentPlatformValid` | Enum validation | All constants valid, empty and unknown invalid |
-| `TestPrivacyTierValid` | Enum validation | All constants valid, empty and unknown invalid |
-| `TestScrubModeValid` | Enum validation | All constants valid, empty and unknown invalid |
-| `TestAttributionValid` | Enum validation | All constants valid, empty and unknown invalid |
-| `TestSessionMetadataJSON` | JSON round-trip | Marshal → unmarshal equals original |
-| `TestSessionMetadataFieldNames` | JSON field naming | Serialized JSON uses snake_case matching data-spec |
-| `TestSessionMetadataExitCode` | Pointer omitempty behavior | `0` serialized, `nil` omitted |
-| `TestSaveMetadataJSON` | JSON round-trip | Marshal → unmarshal equals original |
-| `TestNoteContentJSON` | JSON round-trip with RawMessage | Content preserved as raw JSON |
-| `TestPrivacyMetadataDefaults` | Zero-value behavior | Empty tier, scrubbed false, encrypted false |
+
+| Test                              | What it verifies                | Pass condition                                     |
+| --------------------------------- | ------------------------------- | -------------------------------------------------- |
+| `TestNewSessionID`                | ID generation                   | Starts with `ses_`, suffix is valid ULID           |
+| `TestNewSaveID`                   | ID generation                   | Starts with `sav_`, suffix is valid ULID           |
+| `TestSessionIDValidate`           | Validation (table-driven)       | Accepts valid IDs, rejects malformed ones          |
+| `TestSessionIDTimestamp`          | Timestamp extraction            | Within 1s of `time.Now()` at generation            |
+| `TestULIDMonotonic`               | Monotonic ordering              | 100 sequential ULIDs are lexicographically sorted  |
+| `TestPrefixRegistryPreregistered` | First-party prefixes            | `ses_` and `sav_` are registered at construction   |
+| `TestPrefixRegistryCollision`     | Collision detection             | Re-registering `ses_` returns error                |
+| `TestPrefixRegistryValidation`    | Prefix format rules             | Rejects invalid prefix formats                     |
+| `TestPrivacyTierValid`            | Enum validation                 | All constants valid, empty and unknown invalid     |
+| `TestScrubModeValid`              | Enum validation                 | All constants valid, empty and unknown invalid     |
+| `TestAttrReasonValid`             | Enum validation                 | All constants valid, empty and unknown invalid     |
+| `TestSessionJSON`                 | JSON round-trip                 | Marshal → unmarshal equals original                |
+| `TestSessionFieldNames`           | JSON field naming               | Serialized JSON uses snake_case matching data-spec |
+| `TestSessionExitCode`             | Pointer omitempty behavior      | `0` serialized, `nil` omitted                      |
+| `TestSaveJSON`                    | JSON round-trip                 | Marshal → unmarshal equals original                |
+| `TestNoteJSON`                    | JSON round-trip with RawMessage | Content preserved as raw JSON                      |
+| `TestPrivacyDefaults`             | Zero-value behavior             | Empty tier, scrubbed false                         |
+
+

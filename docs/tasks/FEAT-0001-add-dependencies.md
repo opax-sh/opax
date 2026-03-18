@@ -9,7 +9,7 @@
 
 ### T1 — Create feature branch
 ```bash
-git checkout -b feat/FEAT-0001-add-dependencies
+git checkout -b feat-0001-add-dependencies
 ```
 Done when: branch exists and is checked out.
 

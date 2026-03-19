@@ -1,6 +1,6 @@
 # EPIC-0000: Project Foundation
 
-**Status:** Not started
+**Status:** Completed
 **Version:** 1.0.0
 **Date:** March 17, 2026
 **Dependencies:** None (root of dependency graph)
@@ -32,12 +32,12 @@ Add all Phase 0 dependencies to `go.mod`. These are chosen to maintain the singl
 
 ### Acceptance Criteria
 
-- [ ] `go mod tidy` succeeds with no errors
-- [ ] `make build` produces `bin/opax`
-- [ ] `make test` passes (existing tests + new dependency smoke tests)
-- [ ] `make lint` (`go vet ./...`) reports no issues
-- [ ] No CGo dependencies introduced — `CGO_ENABLED=0 go build` succeeds
-- [ ] Each dependency has a smoke test verifying basic functionality (ULID generation, YAML parse, SQLite open/close)
+- [x] `go mod tidy` succeeds with no errors
+- [x] `make build` produces `bin/opax`
+- [x] `make test` passes (existing tests + new dependency smoke tests)
+- [x] `make lint` (`go vet ./...`) reports no issues
+- [x] No CGo dependencies introduced — `CGO_ENABLED=0 go build` succeeds
+- [x] Each dependency has a smoke test verifying basic functionality (ULID generation, YAML parse, SQLite open/close)
 
 ---
 
@@ -182,16 +182,16 @@ type HygieneMetadata struct {
 
 ### Acceptance Criteria
 
-- [ ] All types compile and are importable from `internal/types`
-- [ ] `SessionID` and `SaveID` generate valid prefixed ULIDs
-- [ ] `Validate()` rejects malformed IDs (wrong prefix, invalid ULID)
-- [ ] `Timestamp()` correctly extracts the embedded time from a ULID-based ID
-- [ ] `PrefixRegistry` detects collisions — registering `ses_` twice returns an error
-- [ ] JSON round-trip: marshal a `SessionMetadata` → unmarshal → deep equal
-- [ ] JSON output matches the schemas in data-spec.md (field names, nesting)
-- [ ] `HygieneMetadata` defaults: `scrubbed: false`, empty optional fields omitted in JSON
-- [ ] All enum types have a `Valid() bool` method
-- [ ] Table-driven tests, stdlib `testing` only, no testify
+- [x] All types compile and are importable from `internal/types`
+- [x] `SessionID` and `SaveID` generate valid prefixed ULIDs
+- [x] `Validate()` rejects malformed IDs (wrong prefix, invalid ULID)
+- [x] `Timestamp()` correctly extracts the embedded time from a ULID-based ID
+- [x] `PrefixRegistry` detects collisions — registering `ses_` twice returns an error
+- [x] JSON round-trip: marshal a `SessionMetadata` → unmarshal → deep equal
+- [x] JSON output matches the schemas in data-spec.md (field names, nesting)
+- [x] `HygieneMetadata` defaults: `scrubbed: false`, empty optional fields omitted in JSON
+- [x] All enum types have a `Valid() bool` method
+- [x] Table-driven tests, stdlib `testing` only, no testify
 
 ---
 
@@ -353,16 +353,16 @@ func Validate(cfg *OpaxConfig) error
 
 ### Acceptance Criteria
 
-- [ ] `Default()` returns a fully populated config matching the SDK defaults above
-- [ ] `Load()` merges team + personal configs over defaults
-- [ ] Personal config overrides team config; team config overrides defaults
-- [ ] Unknown YAML keys cause `Load()` to return an error
-- [ ] Invalid enum values cause `Validate()` to return an error
-- [ ] Invalid regex in `custom_patterns` causes `Validate()` to return an error
-- [ ] Missing config files are silently skipped (not an error)
-- [ ] Empty config file is valid (all defaults apply)
-- [ ] Error messages include the config file path and the problematic key
-- [ ] Table-driven tests, stdlib `testing` only
+- [x] `Default()` returns a fully populated config matching the SDK defaults above
+- [x] `Load()` merges team + personal configs over defaults
+- [x] Personal config overrides team config; team config overrides defaults
+- [x] Unknown YAML keys cause `Load()` to return an error
+- [x] Invalid enum values cause `Validate()` to return an error
+- [x] Invalid regex in `custom_patterns` causes `Validate()` to return an error
+- [x] Missing config files are silently skipped (not an error)
+- [x] Empty config file is valid (all defaults apply)
+- [x] Error messages include the config file path and the problematic key
+- [x] Table-driven tests, stdlib `testing` only
 
 ---
 
@@ -439,17 +439,17 @@ defer lock.Release()
 
 ### Acceptance Criteria
 
-- [ ] `Acquire` creates lock file atomically (no race between check and create)
-- [ ] `Acquire` blocks and retries up to timeout
-- [ ] `Acquire` returns `ErrLockTimeout` after timeout expires
-- [ ] `Release` removes the lock file
-- [ ] `Release` is idempotent — calling twice does not error
-- [ ] Lock file contains valid JSON with PID and timestamp
-- [ ] Stale lock detection: if PID in lock file is not running, `ErrStaleLock` is returned and the file remains in place for manual cleanup
-- [ ] Concurrent acquisition test: two goroutines competing for the same lock, only one succeeds immediately
-- [ ] Deferred cleanup works correctly (lock released even if function panics — `defer` semantics)
-- [ ] Error messages include the lock file path: `fmt.Errorf("lock: ...")`
-- [ ] Table-driven tests, stdlib `testing` only
+- [x] `Acquire` creates lock file atomically (no race between check and create)
+- [x] `Acquire` blocks and retries up to timeout
+- [x] `Acquire` returns `ErrLockTimeout` after timeout expires
+- [x] `Release` removes the lock file
+- [x] `Release` is idempotent — calling twice does not error
+- [x] Lock file contains valid JSON with PID and timestamp
+- [x] Stale lock detection: if PID in lock file is not running, `ErrStaleLock` is returned and the file remains in place for manual cleanup
+- [x] Concurrent acquisition test: two processes competing for the same lock, only one succeeds immediately and the other acquires after release
+- [x] Deferred cleanup works correctly (lock released even if function returns early — `defer` semantics)
+- [x] Error messages include the lock file path: `fmt.Errorf("lock: ...")`
+- [x] Table-driven tests, stdlib `testing` only
 
 ---
 
@@ -493,11 +493,11 @@ These are explicitly out of scope for EPIC-0000. Violating these boundaries is s
 
 ## Verification Checklist
 
-- [ ] All four features (FEAT-0001–FEAT-0004) have acceptance criteria met
-- [ ] Types align with data-spec.md JSON schemas — field names match exactly
-- [ ] Config structure aligns with hygiene.md YAML examples
-- [ ] Lock semantics match architecture invariant #7 (write serialization via `.git/opax.lock`)
-- [ ] No scope creep into E1+ territory (no git ops, no SQLite, no CLI commands)
-- [ ] `CGO_ENABLED=0 make build` succeeds
-- [ ] `make test` passes
-- [ ] `make lint` clean
+- [x] All four features (FEAT-0001–FEAT-0004) have acceptance criteria met
+- [x] Types align with data-spec.md JSON schemas — field names match exactly
+- [x] Config structure aligns with hygiene.md YAML examples
+- [x] Lock semantics match architecture invariant #7 (write serialization via `.git/opax.lock`)
+- [x] No scope creep into E1+ territory (no git ops, no SQLite, no CLI commands)
+- [x] `CGO_ENABLED=0 make build` succeeds
+- [x] `make test` passes
+- [x] `make lint` clean

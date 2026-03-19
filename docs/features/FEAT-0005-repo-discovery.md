@@ -1,7 +1,7 @@
 # FEAT-0005 - Repo Discovery
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Planned
+**Status:** Backlog  
 **Dependencies:** EPIC-0000 (config + lock utilities only)
 **Dependents:** FEAT-0006 through FEAT-0011
 
@@ -69,12 +69,12 @@ Key constraint: the lock file remains `filepath.Join(CommonGitDir, "opax.lock")`
 
 1. Start from `startDir` and walk upward until a `.git` entry is found or the filesystem root is reached
 2. If `.git` is a directory:
-   - `GitDir = .git`
-   - `CommonGitDir = .git` unless a `commondir` file indicates linked-worktree layout
+  - `GitDir = .git`
+  - `CommonGitDir = .git` unless a `commondir` file indicates linked-worktree layout
 3. If `.git` is a file:
-   - parse `gitdir: <path>`
-   - resolve relative paths against the containing directory
-   - if the resolved gitdir contains a `commondir` file, resolve `CommonGitDir` from it
+  - parse `gitdir: <path>`
+  - resolve relative paths against the containing directory
+  - if the resolved gitdir contains a `commondir` file, resolve `CommonGitDir` from it
 4. Reject bare repositories in Phase 0 with a clear error
 5. Populate `OpaxDir = CommonGitDir/opax`
 6. Validate that `CommonGitDir` exists and is writable enough for later Opax initialization
@@ -136,13 +136,16 @@ It does **not** create the lock file, CAS content dir, database file, or any hoo
 
 ## Test Plan
 
-| Test | What it verifies | Pass condition |
-|---|---|---|
-| `TestDiscoverRepoStandard` | Normal repo resolution | Correct repo root, git dir, common git dir |
-| `TestDiscoverRepoNestedPath` | Upward search from subdirectory | Same result as repo root |
-| `TestDiscoverRepoLinkedWorktree` | Worktree resolution | Common git dir points to shared `.git` |
-| `TestDiscoverRepoSubmodule` | Submodule handling | Submodule treated as its own repo |
-| `TestDiscoverRepoBareRepo` | Unsupported topology | Returns `ErrBareRepo` |
-| `TestDiscoverRepoGitFileIndirection` | `.git` file parsing | Relative gitdir path resolved correctly |
-| `TestEnsureOpaxDir` | Directory creation | `CommonGitDir/opax` created once, repeat safe |
-| `TestEnsureOpaxDirExistingFile` | Invalid existing path | Clear error when `opax` is not a directory |
+
+| Test                                 | What it verifies                | Pass condition                                |
+| ------------------------------------ | ------------------------------- | --------------------------------------------- |
+| `TestDiscoverRepoStandard`           | Normal repo resolution          | Correct repo root, git dir, common git dir    |
+| `TestDiscoverRepoNestedPath`         | Upward search from subdirectory | Same result as repo root                      |
+| `TestDiscoverRepoLinkedWorktree`     | Worktree resolution             | Common git dir points to shared `.git`        |
+| `TestDiscoverRepoSubmodule`          | Submodule handling              | Submodule treated as its own repo             |
+| `TestDiscoverRepoBareRepo`           | Unsupported topology            | Returns `ErrBareRepo`                         |
+| `TestDiscoverRepoGitFileIndirection` | `.git` file parsing             | Relative gitdir path resolved correctly       |
+| `TestEnsureOpaxDir`                  | Directory creation              | `CommonGitDir/opax` created once, repeat safe |
+| `TestEnsureOpaxDirExistingFile`      | Invalid existing path           | Clear error when `opax` is not a directory    |
+
+

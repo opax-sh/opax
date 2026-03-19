@@ -2,7 +2,7 @@
 |---|---|
 | **Type** | Epic |
 | **Epic ID** | EPIC-XXXX |
-| **Status** | Planned |
+| **Status** | Backlog |
 | **Owner** | team-or-owner |
 | **Target milestone** | MVP-<phase> |
 | **Last synced** | YYYY-MM-DD |

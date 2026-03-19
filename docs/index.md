@@ -4,17 +4,17 @@
 
 ### Active Epics
 
-- [`epics/EPIC-0001-git-plumbing-layer.md`](epics/EPIC-0001-git-plumbing-layer.md) (`Planned`)
+- [`epics/EPIC-0001-git-plumbing-layer.md`](epics/EPIC-0001-git-plumbing-layer.md) (`Backlog`)
 
 ### Active Features
 
-- [`features/FEAT-0005-repo-discovery.md`](features/FEAT-0005-repo-discovery.md) (`Planned`)
-- [`features/FEAT-0006-orphan-branch-management.md`](features/FEAT-0006-orphan-branch-management.md) (`Planned`)
-- [`features/FEAT-0007-write-records-to-branch.md`](features/FEAT-0007-write-records-to-branch.md) (`Planned`)
-- [`features/FEAT-0008-read-records-from-branch.md`](features/FEAT-0008-read-records-from-branch.md) (`Planned`)
-- [`features/FEAT-0009-git-notes-operations.md`](features/FEAT-0009-git-notes-operations.md) (`Planned`)
-- [`features/FEAT-0010-commit-trailer-support.md`](features/FEAT-0010-commit-trailer-support.md) (`Planned`)
-- [`features/FEAT-0011-refspec-configuration.md`](features/FEAT-0011-refspec-configuration.md) (`Planned`)
+- [`features/FEAT-0005-repo-discovery.md`](features/FEAT-0005-repo-discovery.md) (`Backlog`)
+- [`features/FEAT-0006-orphan-branch-management.md`](features/FEAT-0006-orphan-branch-management.md) (`Backlog`)
+- [`features/FEAT-0007-write-records-to-branch.md`](features/FEAT-0007-write-records-to-branch.md) (`Backlog`)
+- [`features/FEAT-0008-read-records-from-branch.md`](features/FEAT-0008-read-records-from-branch.md) (`Backlog`)
+- [`features/FEAT-0009-git-notes-operations.md`](features/FEAT-0009-git-notes-operations.md) (`Backlog`)
+- [`features/FEAT-0010-commit-trailer-support.md`](features/FEAT-0010-commit-trailer-support.md) (`Backlog`)
+- [`features/FEAT-0011-refspec-configuration.md`](features/FEAT-0011-refspec-configuration.md) (`Backlog`)
 
 ## All Docs
 

@@ -1,6 +1,6 @@
 # EPIC-0001: Git Plumbing Layer
 
-**Status:** Planned
+**Status:** Backlog  
 **Version:** 1.0.0-draft
 **Date:** March 18, 2026
 **Dependencies:** EPIC-0000 (types, config, lock)
@@ -10,7 +10,7 @@
 
 ## Goal
 
-Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/opax/notes/*`, support `Opax-Save` trailer parsing and insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
+Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/opax/notes/`*, support `Opax-Save` trailer parsing and insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
 
 This epic is authoritative for EPIC-0001 if `docs/product/roadmap.md`, `docs/product/overview.md`, or `docs/product/data-spec.md` drift. The roadmap remains the execution index; this document resolves Phase 0 implementation details.
 
@@ -87,15 +87,17 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 
 ## Feature Breakdown
 
-| Feature ID | Feature | Purpose | Notes |
-|---|---|---|---|
-| FEAT-0005 | Repo discovery | Resolve repo root, real git dir, common git dir, and `.git/opax/` ownership | Foundation for every other git feature |
-| FEAT-0006 | Orphan branch management | Create and validate `opax/v1` with a root sentinel | Defines what a valid Opax branch is |
-| FEAT-0007 | Write records to branch | Append-only record writes using blobs, trees, commits, and CAS-style ref updates | Hardest feature in the epic |
-| FEAT-0008 | Read records from branch | Point reads from `opax/v1` by record ID/path | Internal primitive for rebuild/sync/debugging |
-| FEAT-0009 | Git notes operations | Read/write/list notes under `refs/opax/notes/*` | Mutable metadata layer |
-| FEAT-0010 | Commit trailer support | Insert and parse `Opax-Save` trailers using save-ID preallocation | Hook installation happens later |
-| FEAT-0011 | Refspec configuration | Generate conservative config for later init/pull/push flows | Must preserve stealth default |
+
+| Feature ID | Feature                  | Purpose                                                                          | Notes                                         |
+| ---------- | ------------------------ | -------------------------------------------------------------------------------- | --------------------------------------------- |
+| FEAT-0005  | Repo discovery           | Resolve repo root, real git dir, common git dir, and `.git/opax/` ownership      | Foundation for every other git feature        |
+| FEAT-0006  | Orphan branch management | Create and validate `opax/v1` with a root sentinel                               | Defines what a valid Opax branch is           |
+| FEAT-0007  | Write records to branch  | Append-only record writes using blobs, trees, commits, and CAS-style ref updates | Hardest feature in the epic                   |
+| FEAT-0008  | Read records from branch | Point reads from `opax/v1` by record ID/path                                     | Internal primitive for rebuild/sync/debugging |
+| FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/opax/notes/`*                                  | Mutable metadata layer                        |
+| FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
+| FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
+
 
 ---
 
@@ -195,13 +197,15 @@ The feature must not blur them into a fake shared namespace.
 
 ## Support Matrix
 
-| Repo topology | Phase 0 support | Notes |
-|---|---|---|
-| Normal non-bare repo | Yes | Primary path |
-| Linked worktree | Yes | Use common git dir for Opax state |
-| Submodule repo | Yes | Treat the submodule as its own repository |
-| Bare repo | No | Clear error in Phase 0 |
-| Detached `.git` file indirection | Yes | Must resolve real gitdir safely |
+
+| Repo topology                    | Phase 0 support | Notes                                     |
+| -------------------------------- | --------------- | ----------------------------------------- |
+| Normal non-bare repo             | Yes             | Primary path                              |
+| Linked worktree                  | Yes             | Use common git dir for Opax state         |
+| Submodule repo                   | Yes             | Treat the submodule as its own repository |
+| Bare repo                        | No              | Clear error in Phase 0                    |
+| Detached `.git` file indirection | Yes             | Must resolve real gitdir safely           |
+
 
 ---
 
@@ -223,36 +227,41 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 
 ## Risks
 
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Tree mutation logic in go-git is awkward or incomplete | High | Keep a narrow internal fallback to shell plumbing with identical tests and semantics |
-| Worktree/common-dir resolution is mishandled | High | Make `RepoContext` authoritative and test linked worktrees explicitly |
-| Stale-tip writes silently overwrite branch history | High | Require compare-and-swap updates and explicit conflict errors |
-| Refspec config changes accidentally change plain `git push` behavior | High | Store Opax explicit refspecs separately; never mutate `remote.<name>.push` in Phase 0 |
-| Trailer helper reuses stale save IDs across amend/rebase flows | Medium-High | Regenerate and replace `Opax-Save` on every prepare phase |
-| Invalid existing branch or note state causes silent corruption | Medium | Validate aggressively and fail closed; no auto-repair in Phase 0 |
+
+| Risk                                                                 | Impact      | Mitigation                                                                            |
+| -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| Tree mutation logic in go-git is awkward or incomplete               | High        | Keep a narrow internal fallback to shell plumbing with identical tests and semantics  |
+| Worktree/common-dir resolution is mishandled                         | High        | Make `RepoContext` authoritative and test linked worktrees explicitly                 |
+| Stale-tip writes silently overwrite branch history                   | High        | Require compare-and-swap updates and explicit conflict errors                         |
+| Refspec config changes accidentally change plain `git push` behavior | High        | Store Opax explicit refspecs separately; never mutate `remote.<name>.push` in Phase 0 |
+| Trailer helper reuses stale save IDs across amend/rebase flows       | Medium-High | Regenerate and replace `Opax-Save` on every prepare phase                             |
+| Invalid existing branch or note state causes silent corruption       | Medium      | Validate aggressively and fail closed; no auto-repair in Phase 0                      |
+
 
 ---
 
 ## Verification Checklist
 
-- [ ] `FEAT-0005` resolves normal repos, worktrees, and submodules correctly
-- [ ] `FEAT-0006` creates `refs/heads/opax/v1` idempotently and rejects malformed branches
-- [ ] `FEAT-0007` writes records without touching the working tree and rejects duplicate record IDs
-- [ ] `FEAT-0007` uses `.git/opax.lock` and compare-and-swap ref updates
-- [ ] `FEAT-0008` can read branch records directly by deterministic path
-- [ ] `FEAT-0009` can bootstrap missing notes refs and enumerate notes for rebuild
-- [ ] `FEAT-0010` inserts exactly one valid `Opax-Save` trailer and parses it back from commits
-- [ ] `FEAT-0011` preserves stealth default: plain `git fetch` and `git push` remain code-centric
-- [ ] All git writes use machine identity `Opax <opax@local>`
-- [ ] No code in `internal/git/` checks out or modifies the working tree
+- `FEAT-0005` resolves normal repos, worktrees, and submodules correctly
+- `FEAT-0006` creates `refs/heads/opax/v1` idempotently and rejects malformed branches
+- `FEAT-0007` writes records without touching the working tree and rejects duplicate record IDs
+- `FEAT-0007` uses `.git/opax.lock` and compare-and-swap ref updates
+- `FEAT-0008` can read branch records directly by deterministic path
+- `FEAT-0009` can bootstrap missing notes refs and enumerate notes for rebuild
+- `FEAT-0010` inserts exactly one valid `Opax-Save` trailer and parses it back from commits
+- `FEAT-0011` preserves stealth default: plain `git fetch` and `git push` remain code-centric
+- All git writes use machine identity `Opax <opax@local>`
+- No code in `internal/git/` checks out or modifies the working tree
 
 ---
 
 ## Files Planned
 
-| File | Role |
-|---|---|
-| `internal/git/git.go` | Repo discovery, branch management, branch read/write helpers, notes, trailers, refspec helpers |
-| `internal/git/git_test.go` | Table-driven tests and repo-fixture integration tests |
-| `internal/git/testdata/` | Small test repositories and message fixtures as needed |
+
+| File                       | Role                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `internal/git/git.go`      | Repo discovery, branch management, branch read/write helpers, notes, trailers, refspec helpers |
+| `internal/git/git_test.go` | Table-driven tests and repo-fixture integration tests                                          |
+| `internal/git/testdata/`   | Small test repositories and message fixtures as needed                                         |
+
+

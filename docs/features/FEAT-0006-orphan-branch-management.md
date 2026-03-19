@@ -1,7 +1,7 @@
 # FEAT-0006 - Orphan Branch Management
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Planned
+**Status:** Backlog
 **Dependencies:** FEAT-0005 (Repo discovery)
 **Dependents:** FEAT-0007, FEAT-0008, FEAT-0011, E5 rebuild/sync, E9 init
 

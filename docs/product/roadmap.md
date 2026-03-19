@@ -1,7 +1,7 @@
 # Opax Implementation Roadmap
 
 **Version:** 1.0.0-draft
-**Date:** March 17, 2026
+**Date:** March 19, 2026  
 **Companion to:** Opax PRD v2.0.0
 
 ---
@@ -74,20 +74,20 @@ E0: Foundation
 
 ### EPIC-0001: Git Plumbing Layer
 
-**Status:** planned
+**Status:** In Progress
 
 **Goal:** Read/write to `opax/v1` orphan branch and git notes via go-git plumbing. Never touch working tree. **Riskiest epic** — tree manipulation is the hardest code.
 
 
-| Feature ID | Feature                  | Status  | Description                                                                                                                                                                                                                                                                    |
-| ---------- | ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| FEAT-0005  | Repo discovery           | planned | Open git repo via go-git, validate, locate .git/, create .git/opax/                                                                                                                                                                                                            |
-| FEAT-0006  | Orphan branch mgmt       | planned | Create `opax/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                                                                    |
-| FEAT-0007  | Write records to branch  | planned | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build full tree from current tip + new subtree. Acquire .git/opax.lock. Fallback: shell out to git plumbing if go-git is too awkward |
-| FEAT-0008  | Read records from branch | planned | Navigate tree at branch tip to shard/id path, read blob contents                                                                                                                                                                                                               |
-| FEAT-0009  | Git notes operations     | planned | Write/read JSON notes under namespaces (refs/opax/notes/sessions, etc.), handle missing notes ref                                                                                                                                                                              |
-| FEAT-0010  | Commit trailer support   | planned | Preallocate save IDs and upsert `Opax-Save` via `prepare-commit-msg`; parse committed trailers later. Default session linkage mechanism                                                                                                                                        |
-| FEAT-0011  | Refspec configuration    | planned | Generate conservative `.git/config` updates — exclude `opax/v1` from default fetch and store explicit Opax fetch/push refspecs separately                                                                                                                                     |
+| Feature ID | Feature                  | Status      | Description                                                                                                                                                                                                                                                                    |
+| ---------- | ------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| FEAT-0005  | Repo discovery           | In Progress | Open git repo via go-git, validate, locate .git/, create .git/opax/                                                                                                                                                                                                            |
+| FEAT-0006  | Orphan branch mgmt       | planned     | Create `opax/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                                                                    |
+| FEAT-0007  | Write records to branch  | planned     | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build full tree from current tip + new subtree. Acquire .git/opax.lock. Fallback: shell out to git plumbing if go-git is too awkward |
+| FEAT-0008  | Read records from branch | planned     | Navigate tree at branch tip to shard/id path, read blob contents                                                                                                                                                                                                               |
+| FEAT-0009  | Git notes operations     | planned     | Write/read JSON notes under namespaces (refs/opax/notes/sessions, etc.), handle missing notes ref                                                                                                                                                                              |
+| FEAT-0010  | Commit trailer support   | planned     | Preallocate save IDs and upsert `Opax-Save` via `prepare-commit-msg`; parse committed trailers later. Default session linkage mechanism                                                                                                                                        |
+| FEAT-0011  | Refspec configuration    | planned     | Generate conservative `.git/config` updates — exclude `opax/v1` from default fetch and store explicit Opax fetch/push refspecs separately                                                                                                                                      |
 
 
 ---
@@ -136,11 +136,11 @@ E0: Foundation
 **Goal:** Compose git + CAS + hygiene into a single write operation. The actual Opax storage pipeline.
 
 
-| Feature ID | Feature               | Status  | Description                                                                                                                                                               |
-| ---------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0023  | Write orchestrator    | planned | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + hygiene metadata → serialize → write to orphan branch. All under .git/opax.lock     |
-| FEAT-0024  | Session archive write | planned | sessions/{shard}/{id}/ with metadata.json + summary.md. Transcript → CAS (always large). Generate ses_ ULID                                                               |
-| FEAT-0025  | save write            | planned | saves/{shard}/{id}/ with metadata.json. Link to commit hash + session IDs. Finalize preallocated `sav_` ID from trailer                                                    |
+| Feature ID | Feature               | Status  | Description                                                                                                                                                                                 |
+| ---------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0023  | Write orchestrator    | planned | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + hygiene metadata → serialize → write to orphan branch. All under .git/opax.lock                       |
+| FEAT-0024  | Session archive write | planned | sessions/{shard}/{id}/ with metadata.json + summary.md. Transcript → CAS (always large). Generate ses_ ULID                                                                                 |
+| FEAT-0025  | save write            | planned | saves/{shard}/{id}/ with metadata.json. Link to commit hash + session IDs. Finalize preallocated `sav`_ ID from trailer                                                                     |
 | FEAT-0026  | Commit linkage        | planned | Use the preallocated `Opax-Save` trailer as the default immutable linkage, or write a session-link note when `--no-trailers` is enabled. Save fans out to sessions via many-to-many linkage |
 
 
@@ -211,11 +211,11 @@ E0: Foundation
 **Goal:** `plugins/memory/` — the primary value plugin tying capture, storage, and query together.
 
 
-| Feature ID | Feature              | Status  | Description                                                                                                                                                                      |
-| ---------- | -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0046  | OpaxPlugin interface | planned | Define in internal/plugin: Name, Namespace, RegisterViews, RegisterCLI, RegisterMCP. Implement in plugins/memory                                                                 |
-| FEAT-0047  | Session archive ops  | planned | ArchiveSession (full write path), GetSession, ListSessions, SearchSessions (FTS5)                                                                                                |
-| FEAT-0048  | Save creation        | planned | CreateSave — build save with session attribution (file overlap primary, temporal proximity secondary). Finalize the preallocated `sav_` ID from `Opax-Save`, or write a note fallback. Called from post-commit hook |
+| Feature ID | Feature              | Status  | Description                                                                                                                                                                                                         |
+| ---------- | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0046  | OpaxPlugin interface | planned | Define in internal/plugin: Name, Namespace, RegisterViews, RegisterCLI, RegisterMCP. Implement in plugins/memory                                                                                                    |
+| FEAT-0047  | Session archive ops  | planned | ArchiveSession (full write path), GetSession, ListSessions, SearchSessions (FTS5)                                                                                                                                   |
+| FEAT-0048  | Save creation        | planned | CreateSave — build save with session attribution (file overlap primary, temporal proximity secondary). Finalize the preallocated `sav`_ ID from `Opax-Save`, or write a note fallback. Called from post-commit hook |
 
 
 ---
@@ -227,14 +227,14 @@ E0: Foundation
 **Goal:** Wire all commands to real implementations. Remove every "not yet implemented" message.
 
 
-| Feature ID | Feature               | Status  | Description                                                                                                                                                                                                 |
-| ---------- | --------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Feature ID | Feature               | Status  | Description                                                                                                                                                                                                                                           |
+| ---------- | --------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | FEAT-0049  | `opax init`           | planned | Validate git repo, create .git/opax/ + content/, init SQLite, create orphan branch, configure default-fetch exclusion plus explicit Opax refspecs, install hooks (incl. `prepare-commit-msg` for preallocated trailers), generate default config.yaml |
-| FEAT-0050  | `opax db rebuild`     | planned | Call StorageBackend.Rebuild(), show progress, output summary                                                                                                                                                |
-| FEAT-0051  | `opax storage stats`  | planned | Record counts by type, git tier size, CAS size, DB size. Table + --json                                                                                                                                     |
-| FEAT-0052  | `opax doctor`         | planned | Health checks: git repo?, branch exists?, DB accessible?, in sync?, hooks installed?, config.yaml?, CAS writable? Pass/warn/fail indicators                                                                 |
-| FEAT-0053  | `opax search` wiring  | planned | Ensure lazy sync fires before search if dirty. Handle empty DB gracefully                                                                                                                                   |
-| FEAT-0054  | `opax session` wiring | planned | Ensure JSON output matches MCP tool format for consistency                                                                                                                                                  |
+| FEAT-0050  | `opax db rebuild`     | planned | Call StorageBackend.Rebuild(), show progress, output summary                                                                                                                                                                                          |
+| FEAT-0051  | `opax storage stats`  | planned | Record counts by type, git tier size, CAS size, DB size. Table + --json                                                                                                                                                                               |
+| FEAT-0052  | `opax doctor`         | planned | Health checks: git repo?, branch exists?, DB accessible?, in sync?, hooks installed?, config.yaml?, CAS writable? Pass/warn/fail indicators                                                                                                           |
+| FEAT-0053  | `opax search` wiring  | planned | Ensure lazy sync fires before search if dirty. Handle empty DB gracefully                                                                                                                                                                             |
+| FEAT-0054  | `opax session` wiring | planned | Ensure JSON output matches MCP tool format for consistency                                                                                                                                                                                            |
 
 
 ---
@@ -264,12 +264,12 @@ E0: Foundation
 **Goal:** Post-commit capture flow that makes passive capture automatic.
 
 
-| Feature ID | Feature                      | Status  | Description                                                                                                                                                                   |
-| ---------- | ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0060  | Hook wrapper scripts         | planned | post-commit wrapper: backup pre-existing hook as .pre-opax, run original first, then `opax capture --post-commit` async (fire-and-forget). Detect husky/lefthook              |
-| FEAT-0061  | post-merge dirty flag        | planned | Install post-merge hook that touches .git/opax/dirty                                                                                                                          |
+| Feature ID | Feature                      | Status  | Description                                                                                                                                                             |
+| ---------- | ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0060  | Hook wrapper scripts         | planned | post-commit wrapper: backup pre-existing hook as .pre-opax, run original first, then `opax capture --post-commit` async (fire-and-forget). Detect husky/lefthook        |
+| FEAT-0061  | post-merge dirty flag        | planned | Install post-merge hook that touches .git/opax/dirty                                                                                                                    |
 | FEAT-0062  | `opax capture --post-commit` | planned | Hidden command invoked by hook. Detect sources → read sessions → scrub → write → finalize save from the preallocated trailer, or write a note fallback if --no-trailers |
-| FEAT-0063  | --no-hooks flag              | planned | Skip hook installation on init. Fallback to explicit MCP calls                                                                                                                |
+| FEAT-0063  | --no-hooks flag              | planned | Skip hook installation on init. Fallback to explicit MCP calls                                                                                                          |
 
 
 ---
@@ -392,3 +392,4 @@ Phase 0 is verified by running the E2E integration test (E12.1):
 5. Simulate Codex session, same repo — `opax search` returns same results
 6. `opax storage stats` — shows record counts and sizes
 7. Verify content containing `AKIA...` test key shows `[REDACTED:aws_key]`
+

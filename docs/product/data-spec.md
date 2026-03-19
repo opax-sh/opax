@@ -30,7 +30,7 @@ Annotated tags:     opax/{plugin-defined}
 Commit trailers:    Opax-Save: {save-id}
 ```
 
-The `opax/` prefix is configurable but defaults to `opax/`. All data is stored on the single `opax/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/v1/ext-{name}/`. Extension plugins choose their own ID prefixes (avoiding first-party prefixes) and follow the same sharding convention.
+Phase 0 fixes the namespace to `opax/` and the trailer prefix to `Opax-`. All data is stored on the single `opax/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/v1/ext-{name}/`. Extension plugins choose their own ID prefixes (avoiding first-party prefixes) and follow the same sharding convention.
 
 ### ID Format
 
@@ -199,15 +199,15 @@ First-party namespaces live directly under `refs/opax/notes/`. Community/third-p
 
 ### 3.4 Notes Distribution
 
-`git push` does not push notes by default. The SDK configures a single push refspec for `refs/opax/*` during `opax init`, which covers notes, config, and all plugin refs. Auto-push on commit is configurable but off by default — explicit `opax push` or `git push` with configured refspecs.
+Plain `git push` does not push notes or `opax/v1` by default. During `opax init`, the SDK records explicit Opax fetch/push refspecs for later `opax pull` and `opax push` flows. Those explicit refspecs cover both `refs/heads/opax/v1` and `refs/opax/*`. Auto-push on commit is off by default — sharing Opax data remains explicit.
 
 ---
 
 ## 4. Commit Trailers
 
-Trailers are structured key-value pairs appended to commit messages. They are the **default mechanism** for linking commits to session archives. A `prepare-commit-msg` hook appends trailers before the commit is created, so they are part of the commit hash — immutable and tamper-evident.
+Trailers are structured key-value pairs appended to commit messages. They are the **default mechanism** for linking commits to session archives. In Phase 0, a `prepare-commit-msg` hook allocates a fresh save ID and inserts the trailer before the commit is created, so the link is part of the commit hash — immutable and tamper-evident. A later post-commit flow reads the committed trailer and finalizes the save using the real commit hash.
 
-Trailers are added automatically by the post-install hook. Can be disabled via `opax init --no-trailers` for teams that object to modified commit messages.
+Trailers are added automatically by Opax hook setup during `opax init`. They can be disabled via `opax init --no-trailers` for teams that object to modified commit messages.
 
 ```
 feat: implement OAuth2 PKCE flow
@@ -441,8 +441,8 @@ All record metadata includes a `version` field (integer, starting at 1). When th
 
 1. **New fields are always optional.** Existing records without the field remain valid. The materializer uses sensible defaults for missing fields.
 2. **The `version` field increments** when a record uses the new schema. Old and new versions coexist on the same branch.
-3. `**opax db rebuild` handles all known versions.** The materializer maps each version to the current SQLite schema during rebuild. This is the migration path — there are no separate migration scripts.
-4. **Breaking changes require a new branch.** If a change cannot be handled by optional fields (e.g., fundamentally restructuring a record type), the branch namespace increments: `opax/data/v2`. The old branch is preserved for read-only access. This should be exceedingly rare.
+3. **`opax db rebuild` handles all known versions.** The materializer maps each version to the current SQLite schema during rebuild. This is the migration path — there are no separate migration scripts.
+4. **Breaking changes require a new branch.** If a change cannot be handled by optional fields (e.g., fundamentally restructuring a record type), the branch namespace increments: `opax/v2`. The old branch is preserved for read-only access. This should be exceedingly rare.
 
 ---
 

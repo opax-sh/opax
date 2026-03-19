@@ -19,7 +19,7 @@ coverage/
 # Claude Code
 .claude/settings.local.json
 docs/superpowers/
-.cursor/hooks/state/continual-learning.json
+.cursor/
 
 # IDE
 .idea/

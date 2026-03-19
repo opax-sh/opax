@@ -55,24 +55,24 @@ E0: Foundation
 
 ---
 
-### Epic 0: Project Foundation
+### EPIC-0000: Project Foundation
 
 **Status:** completed
 
 **Goal:** Types, config, dependencies. Nothing user-visible but everything downstream needs this.
 
 
-| Feature ID | Feature              | Status    | Description                                                                                                                                                                                                                |
-| ---------- | -------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0001 | Add dependencies     | completed | go-git, modernc.org/sqlite, oklog/ulid, yaml.v3, MCP Go SDK                                                                                                                                                                |
-| FEAT-0002 | Core domain types    | completed | `internal/types/` — record ID types (ses_, sav_), Hygiene metadata on Session/Save, SessionMetadata (includes files_touched), SaveMetadata (sessions array with attribution), NoteContent, enums (ScrubMode, AttrReason), ULID generation helper. Plugin ID prefixes (wrk_, act_) registered at plugin load |
-| FEAT-0003 | Configuration system | completed | `internal/config/` — OpaxConfig struct (hygiene, storage, capture, trailers), single `config.yaml` with hierarchy (SDK defaults → team `.opax/config.yaml` → personal `~/.config/opax/config.yaml`), strict validation |
-| FEAT-0004 | File lock utility    | completed | `internal/lock/` — .git/opax.lock for write serialization, advisory locking with timeout, deferred cleanup                                                                                                                 |
+| Feature ID | Feature              | Status    | Description                                                                                                                                                                                                                                                                                                 |
+| ---------- | -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0001  | Add dependencies     | completed | go-git, modernc.org/sqlite, oklog/ulid, yaml.v3, MCP Go SDK                                                                                                                                                                                                                                                 |
+| FEAT-0002  | Core domain types    | completed | `internal/types/` — record ID types (ses_, sav_), Hygiene metadata on Session/Save, SessionMetadata (includes files_touched), SaveMetadata (sessions array with attribution), NoteContent, enums (ScrubMode, AttrReason), ULID generation helper. Plugin ID prefixes (wrk_, act_) registered at plugin load |
+| FEAT-0003  | Configuration system | completed | `internal/config/` — OpaxConfig struct (hygiene, storage, capture, trailers), single `config.yaml` with hierarchy (SDK defaults → team `.opax/config.yaml` → personal `~/.config/opax/config.yaml`), strict validation                                                                                      |
+| FEAT-0004  | File lock utility    | completed | `internal/lock/` — .git/opax.lock for write serialization, advisory locking with timeout, deferred cleanup                                                                                                                                                                                                  |
 
 
 ---
 
-### Epic 1: Git Plumbing Layer
+### EPIC-0001: Git Plumbing Layer
 
 **Status:** planned
 
@@ -81,18 +81,18 @@ E0: Foundation
 
 | Feature ID | Feature                  | Status  | Description                                                                                                                                                                                                                                                                    |
 | ---------- | ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| FEAT-0005 | Repo discovery           | planned | Open git repo via go-git, validate, locate .git/, create .git/opax/                                                                                                                                                                                                            |
-| FEAT-0006 | Orphan branch mgmt       | planned | Create `opax/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                                                                    |
-| FEAT-0007 | Write records to branch  | planned | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build full tree from current tip + new subtree. Acquire .git/opax.lock. Fallback: shell out to git plumbing if go-git is too awkward |
-| FEAT-0008 | Read records from branch | planned | Navigate tree at branch tip to shard/id path, read blob contents                                                                                                                                                                                                               |
-| FEAT-0009 | Git notes operations     | planned | Write/read JSON notes under namespaces (refs/opax/notes/sessions, etc.), handle missing notes ref                                                                                                                                                                              |
-| FEAT-0010 | Commit trailer support   | planned | Write `Opax-Save` trailer via prepare-commit-msg hook. Parse trailers from existing commits. Default session linkage mechanism                                                                                                                                                                                             |
-| FEAT-0011 | Refspec configuration    | planned | Generate refspec config for .git/config — push notes refs, exclude opax/v1 from default fetch                                                                                                                                                                                  |
+| FEAT-0005  | Repo discovery           | planned | Open git repo via go-git, validate, locate .git/, create .git/opax/                                                                                                                                                                                                            |
+| FEAT-0006  | Orphan branch mgmt       | planned | Create `opax/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                                                                    |
+| FEAT-0007  | Write records to branch  | planned | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build full tree from current tip + new subtree. Acquire .git/opax.lock. Fallback: shell out to git plumbing if go-git is too awkward |
+| FEAT-0008  | Read records from branch | planned | Navigate tree at branch tip to shard/id path, read blob contents                                                                                                                                                                                                               |
+| FEAT-0009  | Git notes operations     | planned | Write/read JSON notes under namespaces (refs/opax/notes/sessions, etc.), handle missing notes ref                                                                                                                                                                              |
+| FEAT-0010  | Commit trailer support   | planned | Write `Opax-Save` trailer via prepare-commit-msg hook. Parse trailers from existing commits. Default session linkage mechanism                                                                                                                                                 |
+| FEAT-0011  | Refspec configuration    | planned | Generate refspec config for .git/config — push notes refs, exclude opax/v1 from default fetch                                                                                                                                                                                  |
 
 
 ---
 
-### Epic 2: Content-Addressed Storage
+### EPIC-0002: Content-Addressed Storage
 
 **Status:** planned
 
@@ -101,52 +101,52 @@ E0: Foundation
 
 | Feature ID | Feature              | Status  | Description                                                                             |
 | ---------- | -------------------- | ------- | --------------------------------------------------------------------------------------- |
-| FEAT-0012 | CAS write            | planned | SHA-256 hash, shard to .git/opax/content/{hash[0:2]}/{hash[2:]}, skip if exists (dedup) |
-| FEAT-0013 | CAS read             | planned | Retrieve by hash, optional integrity verification (recompute + compare)                 |
-| FEAT-0014 | Directory management | planned | Ensure dirs exist, create shards on demand, stats (count, total size)                   |
-| FEAT-0015 | Size threshold logic | planned | 4 KB threshold utility: inline on branch (< 4KB) or CAS (>= 4KB)                        |
+| FEAT-0012  | CAS write            | planned | SHA-256 hash, shard to .git/opax/content/{hash[0:2]}/{hash[2:]}, skip if exists (dedup) |
+| FEAT-0013  | CAS read             | planned | Retrieve by hash, optional integrity verification (recompute + compare)                 |
+| FEAT-0014  | Directory management | planned | Ensure dirs exist, create shards on demand, stats (count, total size)                   |
+| FEAT-0015  | Size threshold logic | planned | 4 KB threshold utility: inline on branch (< 4KB) or CAS (>= 4KB)                        |
 
 
 ---
 
-### Epic 3: Hygiene Pipeline
+### EPIC-0003: Hygiene Pipeline
 
 **Status:** planned
 
 **Goal:** `internal/hygiene/` — secret detection and scrubbing on all content before storage.
 
 
-| Feature ID | Feature                | Status  | Description                                                                                                                      |
-| ---------- | ---------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0016 | Detector interface     | planned | Detector interface (Detect → []Finding), registry, config-driven loading                                                         |
-| FEAT-0017 | Built-in detectors (6) | planned | AWS keys, GitHub tokens, JWTs, PEM private keys, connection strings, generic API keys                                            |
-| FEAT-0018 | Entropy detection      | planned | Shannon entropy calculator, configurable threshold (default 4.5), min length 20                                                  |
-| FEAT-0019 | Source file scanning   | planned | Read .env/.env.local, extract key-value pairs, flag exact matches in content                                                     |
-| FEAT-0020 | Allowlist filtering    | planned | Exact strings + regex patterns, applied after detection before scrubbing                                                         |
-| FEAT-0021 | Scrubbing action       | planned | Redact (default: `[REDACTED:{detector}]`), reject (error), warn (pass through + log). Returns scrubbed content + hygiene metadata |
-| FEAT-0022 | Pipeline orchestrator  | planned | `Scrub(content, config) → (scrubbed, Hygiene, error)`. Order: source scan → pattern match → entropy → allowlist → scrub  |
+| Feature ID | Feature                | Status  | Description                                                                                                                       |
+| ---------- | ---------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0016  | Detector interface     | planned | Detector interface (Detect → []Finding), registry, config-driven loading                                                          |
+| FEAT-0017  | Built-in detectors (6) | planned | AWS keys, GitHub tokens, JWTs, PEM private keys, connection strings, generic API keys                                             |
+| FEAT-0018  | Entropy detection      | planned | Shannon entropy calculator, configurable threshold (default 4.5), min length 20                                                   |
+| FEAT-0019  | Source file scanning   | planned | Read .env/.env.local, extract key-value pairs, flag exact matches in content                                                      |
+| FEAT-0020  | Allowlist filtering    | planned | Exact strings + regex patterns, applied after detection before scrubbing                                                          |
+| FEAT-0021  | Scrubbing action       | planned | Redact (default: `[REDACTED:{detector}]`), reject (error), warn (pass through + log). Returns scrubbed content + hygiene metadata |
+| FEAT-0022  | Pipeline orchestrator  | planned | `Scrub(content, config) → (scrubbed, Hygiene, error)`. Order: source scan → pattern match → entropy → allowlist → scrub           |
 
 
 ---
 
-### Epic 4: Integrated Write Path
+### EPIC-0004: Integrated Write Path
 
 **Status:** planned
 
 **Goal:** Compose git + CAS + hygiene into a single write operation. The actual Opax storage pipeline.
 
 
-| Feature ID | Feature               | Status  | Description                                                                                                                                                          |
-| ---------- | --------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0023 | Write orchestrator    | planned | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + hygiene metadata → serialize → write to orphan branch. All under .git/opax.lock |
-| FEAT-0024 | Session archive write | planned | sessions/{shard}/{id}/ with metadata.json + summary.md. Transcript → CAS (always large). Generate ses_ ULID                                                          |
-| FEAT-0025 | save write            | planned | saves/{shard}/{id}/ with metadata.json. Link to commit hash + session ID. Generate sav_ ULID                                                                         |
-| FEAT-0026 | Commit linkage        | planned | Attach `Opax-Save` trailer (default) or session-link note (fallback when --no-trailers) to commit after save creation. Save fans out to sessions via many-to-many linkage                                                           |
+| Feature ID | Feature               | Status  | Description                                                                                                                                                               |
+| ---------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0023  | Write orchestrator    | planned | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + hygiene metadata → serialize → write to orphan branch. All under .git/opax.lock     |
+| FEAT-0024  | Session archive write | planned | sessions/{shard}/{id}/ with metadata.json + summary.md. Transcript → CAS (always large). Generate ses_ ULID                                                               |
+| FEAT-0025  | save write            | planned | saves/{shard}/{id}/ with metadata.json. Link to commit hash + session ID. Generate sav_ ULID                                                                              |
+| FEAT-0026  | Commit linkage        | planned | Attach `Opax-Save` trailer (default) or session-link note (fallback when --no-trailers) to commit after save creation. Save fans out to sessions via many-to-many linkage |
 
 
 ---
 
-### Epic 5: SQLite Materialization
+### EPIC-0005: SQLite Materialization
 
 **Status:** planned
 
@@ -155,37 +155,37 @@ E0: Foundation
 
 | Feature ID | Feature                  | Status  | Description                                                                                                                                                                              |
 | ---------- | ------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0027 | DB initialization        | planned | Open/create at .git/opax/opax.db, WAL mode, foreign keys, page size                                                                                                                      |
-| FEAT-0028 | Core schema              | planned | Tables: opax_sessions, opax_session_tags, opax_saves, opax_notes, opax_materializer_state. All indexes. Idempotent (IF NOT EXISTS). Plugins create views over opax_notes, not new tables |
-| FEAT-0029 | FTS5 setup               | planned | Virtual table opax_sessions_fts. AFTER INSERT/DELETE triggers. **Verify FTS5 works with modernc.org/sqlite early**                                                                       |
-| FEAT-0030 | StorageBackend interface | planned | InitSchema, Query, QueryOne, Execute, Search, Sync, Rebuild, Transaction. SearchOptions + SearchResult types                                                                             |
-| FEAT-0031 | SQLite adapter           | planned | Implement StorageBackend against modernc.org/sqlite. FTS5 MATCH, json_extract, transactions                                                                                              |
-| FEAT-0032 | Full rebuild             | planned | Walk all commits on opax/v1, parse metadata.json files, insert into tables, walk notes refs, update materializer_state. The "always rebuildable from git" guarantee                      |
-| FEAT-0033 | Incremental sync         | planned | Compare current HEAD vs stored git_head, walk only new commits, materialize new records                                                                                                  |
-| FEAT-0034 | Dirty flag mechanism     | planned | Write: touch .git/opax/dirty. Read: check flag → incremental sync → remove flag. No daemon needed                                                                                        |
+| FEAT-0027  | DB initialization        | planned | Open/create at .git/opax/opax.db, WAL mode, foreign keys, page size                                                                                                                      |
+| FEAT-0028  | Core schema              | planned | Tables: opax_sessions, opax_session_tags, opax_saves, opax_notes, opax_materializer_state. All indexes. Idempotent (IF NOT EXISTS). Plugins create views over opax_notes, not new tables |
+| FEAT-0029  | FTS5 setup               | planned | Virtual table opax_sessions_fts. AFTER INSERT/DELETE triggers. **Verify FTS5 works with modernc.org/sqlite early**                                                                       |
+| FEAT-0030  | StorageBackend interface | planned | InitSchema, Query, QueryOne, Execute, Search, Sync, Rebuild, Transaction. SearchOptions + SearchResult types                                                                             |
+| FEAT-0031  | SQLite adapter           | planned | Implement StorageBackend against modernc.org/sqlite. FTS5 MATCH, json_extract, transactions                                                                                              |
+| FEAT-0032  | Full rebuild             | planned | Walk all commits on opax/v1, parse metadata.json files, insert into tables, walk notes refs, update materializer_state. The "always rebuildable from git" guarantee                      |
+| FEAT-0033  | Incremental sync         | planned | Compare current HEAD vs stored git_head, walk only new commits, materialize new records                                                                                                  |
+| FEAT-0034  | Dirty flag mechanism     | planned | Write: touch .git/opax/dirty. Read: check flag → incremental sync → remove flag. No daemon needed                                                                                        |
 
 
 ---
 
-### Epic 6: Search & Query
+### EPIC-0006: Search & Query
 
 **Status:** planned
 
 **Goal:** Make `opax search` and `opax session list/get` work. **First demo milestone.**
 
 
-| Feature ID | Feature                  | Status  | Description                                                                                                           |
-| ---------- | ------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0035 | SearchStrategy interface | planned | search_mode field (keyword/semantic/hybrid). Phase 0: FTS5Strategy only                                               |
-| FEAT-0036 | FTS5 search              | planned | Query opax_sessions_fts. Ranked results with snippets. Filters: provider, branch, tags, date range, --limit              |
-| FEAT-0037 | `opax search` command    | planned | Wire CLI stub → FTS5 search. Text output (default) + JSON (--json). Show id, provider, branch, tags, created_at, snippet |
-| FEAT-0038 | `opax session list`      | planned | Query opax_sessions with filters, pagination. Table or JSON output |
-| FEAT-0039 | `opax session get`       | planned | Query by ID, fetch summary + transcript from CAS if content_hash set. Metadata + content output |
+| Feature ID | Feature                  | Status  | Description                                                                                                              |
+| ---------- | ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| FEAT-0035  | SearchStrategy interface | planned | search_mode field (keyword/semantic/hybrid). Phase 0: FTS5Strategy only                                                  |
+| FEAT-0036  | FTS5 search              | planned | Query opax_sessions_fts. Ranked results with snippets. Filters: provider, branch, tags, date range, --limit              |
+| FEAT-0037  | `opax search` command    | planned | Wire CLI stub → FTS5 search. Text output (default) + JSON (--json). Show id, provider, branch, tags, created_at, snippet |
+| FEAT-0038  | `opax session list`      | planned | Query opax_sessions with filters, pagination. Table or JSON output                                                       |
+| FEAT-0039  | `opax session get`       | planned | Query by ID, fetch summary + transcript from CAS if content_hash set. Metadata + content output                          |
 
 
 ---
 
-### Epic 7: Passive Capture Engine
+### EPIC-0007: Passive Capture Engine
 
 **Status:** planned
 
@@ -194,52 +194,52 @@ E0: Foundation
 
 | Feature ID | Feature                  | Status  | Description                                                                                                                                             |
 | ---------- | ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0040 | Common transcript format | planned | NormalizedSession struct: agent, model, timestamps, duration, messages, files_changed, commits. NormalizedMessage: role, content, timestamp, tool_calls |
-| FEAT-0041 | CaptureSource interface  | planned | Detect() bool, ReadSessions(since time.Time) → []NormalizedSession                                                                                      |
-| FEAT-0042 | Claude Code reader       | planned | Read JSONL from ~/.claude/projects/{hash}/. Parse messages, extract model/timestamps/tool usage. Handle partial sessions                                |
-| FEAT-0043 | Codex reader             | planned | Read Codex session logs. Lower fidelity initially until format is better understood                                                                     |
-| FEAT-0044 | Capture coordinator      | planned | Enumerate sources, call Detect/ReadSessions, track last capture timestamp per source                                                                    |
-| FEAT-0045 | Transcript summarization | planned | Simple extraction: first user message as title, key stats, files changed. No LLM in Phase 0                                                             |
+| FEAT-0040  | Common transcript format | planned | NormalizedSession struct: agent, model, timestamps, duration, messages, files_changed, commits. NormalizedMessage: role, content, timestamp, tool_calls |
+| FEAT-0041  | CaptureSource interface  | planned | Detect() bool, ReadSessions(since time.Time) → []NormalizedSession                                                                                      |
+| FEAT-0042  | Claude Code reader       | planned | Read JSONL from ~/.claude/projects/{hash}/. Parse messages, extract model/timestamps/tool usage. Handle partial sessions                                |
+| FEAT-0043  | Codex reader             | planned | Read Codex session logs. Lower fidelity initially until format is better understood                                                                     |
+| FEAT-0044  | Capture coordinator      | planned | Enumerate sources, call Detect/ReadSessions, track last capture timestamp per source                                                                    |
+| FEAT-0045  | Transcript summarization | planned | Simple extraction: first user message as title, key stats, files changed. No LLM in Phase 0                                                             |
 
 
 ---
 
-### Epic 8: Memory Plugin
+### EPIC-0008: Memory Plugin
 
 **Status:** planned
 
 **Goal:** `plugins/memory/` — the primary value plugin tying capture, storage, and query together.
 
 
-| Feature ID | Feature              | Status  | Description                                                                                                      |
-| ---------- | -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| FEAT-0046 | OpaxPlugin interface | planned | Define in internal/plugin: Name, Namespace, RegisterViews, RegisterCLI, RegisterMCP. Implement in plugins/memory |
-| FEAT-0047 | Session archive ops  | planned | ArchiveSession (full write path), GetSession, ListSessions, SearchSessions (FTS5)                                |
-| FEAT-0048 | Save creation        | planned | CreateSave — build save with session attribution (file overlap primary, temporal proximity secondary). Attach `Opax-Save` trailer or note fallback. Called from post-commit hook                           |
+| Feature ID | Feature              | Status  | Description                                                                                                                                                                      |
+| ---------- | -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0046  | OpaxPlugin interface | planned | Define in internal/plugin: Name, Namespace, RegisterViews, RegisterCLI, RegisterMCP. Implement in plugins/memory                                                                 |
+| FEAT-0047  | Session archive ops  | planned | ArchiveSession (full write path), GetSession, ListSessions, SearchSessions (FTS5)                                                                                                |
+| FEAT-0048  | Save creation        | planned | CreateSave — build save with session attribution (file overlap primary, temporal proximity secondary). Attach `Opax-Save` trailer or note fallback. Called from post-commit hook |
 
 
 ---
 
-### Epic 9: CLI Integration
+### EPIC-0009: CLI Integration
 
 **Status:** planned
 
 **Goal:** Wire all commands to real implementations. Remove every "not yet implemented" message.
 
 
-| Feature ID | Feature               | Status  | Description                                                                                                                                          |
-| ---------- | --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0049 | `opax init`           | planned | Validate git repo, create .git/opax/ + content/, init SQLite, create orphan branch, configure refspecs (`refs/opax/*`), install hooks (incl. prepare-commit-msg for trailers), generate default config.yaml |
-| FEAT-0050 | `opax db rebuild`     | planned | Call StorageBackend.Rebuild(), show progress, output summary                                                                                         |
-| FEAT-0051 | `opax storage stats`  | planned | Record counts by type, git tier size, CAS size, DB size. Table + --json                                                                              |
-| FEAT-0052 | `opax doctor`         | planned | Health checks: git repo?, branch exists?, DB accessible?, in sync?, hooks installed?, config.yaml?, CAS writable? Pass/warn/fail indicators          |
-| FEAT-0053 | `opax search` wiring  | planned | Ensure lazy sync fires before search if dirty. Handle empty DB gracefully                                                                            |
-| FEAT-0054 | `opax session` wiring | planned | Ensure JSON output matches MCP tool format for consistency                                                                                           |
+| Feature ID | Feature               | Status  | Description                                                                                                                                                                                                 |
+| ---------- | --------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0049  | `opax init`           | planned | Validate git repo, create .git/opax/ + content/, init SQLite, create orphan branch, configure refspecs (`refs/opax/`*), install hooks (incl. prepare-commit-msg for trailers), generate default config.yaml |
+| FEAT-0050  | `opax db rebuild`     | planned | Call StorageBackend.Rebuild(), show progress, output summary                                                                                                                                                |
+| FEAT-0051  | `opax storage stats`  | planned | Record counts by type, git tier size, CAS size, DB size. Table + --json                                                                                                                                     |
+| FEAT-0052  | `opax doctor`         | planned | Health checks: git repo?, branch exists?, DB accessible?, in sync?, hooks installed?, config.yaml?, CAS writable? Pass/warn/fail indicators                                                                 |
+| FEAT-0053  | `opax search` wiring  | planned | Ensure lazy sync fires before search if dirty. Handle empty DB gracefully                                                                                                                                   |
+| FEAT-0054  | `opax session` wiring | planned | Ensure JSON output matches MCP tool format for consistency                                                                                                                                                  |
 
 
 ---
 
-### Epic 10: MCP Server
+### EPIC-0010: MCP Server
 
 **Status:** planned
 
@@ -248,33 +248,33 @@ E0: Foundation
 
 | Feature ID | Feature              | Status  | Description                                                                      |
 | ---------- | -------------------- | ------- | -------------------------------------------------------------------------------- |
-| FEAT-0055 | Server scaffolding   | planned | MCP SDK or thin custom JSON-RPC. stdio transport. Init/handle/shutdown lifecycle |
-| FEAT-0056 | search_sessions tool | planned | Search query + filters → SearchSessions → ranked results with snippets           |
-| FEAT-0057 | list_sessions tool   | planned | Optional filters → ListSessions → session list                                   |
-| FEAT-0058 | get_session tool     | planned | session_id → GetSession → full metadata + summary                                |
-| FEAT-0059 | `opax mcp` command   | planned | CLI command that starts MCP server (for MCP settings: `"command": "opax mcp"`)   |
+| FEAT-0055  | Server scaffolding   | planned | MCP SDK or thin custom JSON-RPC. stdio transport. Init/handle/shutdown lifecycle |
+| FEAT-0056  | search_sessions tool | planned | Search query + filters → SearchSessions → ranked results with snippets           |
+| FEAT-0057  | list_sessions tool   | planned | Optional filters → ListSessions → session list                                   |
+| FEAT-0058  | get_session tool     | planned | session_id → GetSession → full metadata + summary                                |
+| FEAT-0059  | `opax mcp` command   | planned | CLI command that starts MCP server (for MCP settings: `"command": "opax mcp"`)   |
 
 
 ---
 
-### Epic 11: Hooks & Init Lifecycle
+### EPIC-0011: Hooks & Init Lifecycle
 
 **Status:** planned
 
 **Goal:** Post-commit capture flow that makes passive capture automatic.
 
 
-| Feature ID | Feature                      | Status  | Description                                                                                                                                                      |
-| ---------- | ---------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0060 | Hook wrapper scripts         | planned | post-commit wrapper: backup pre-existing hook as .pre-opax, run original first, then `opax capture --post-commit` async (fire-and-forget). Detect husky/lefthook |
-| FEAT-0061 | post-merge dirty flag        | planned | Install post-merge hook that touches .git/opax/dirty                                                                                                             |
-| FEAT-0062 | `opax capture --post-commit` | planned | Hidden command invoked by hook. Detect sources → read sessions → scrub → write → create save. Trailers already attached by prepare-commit-msg; note fallback if --no-trailers |
-| FEAT-0063 | --no-hooks flag              | planned | Skip hook installation on init. Fallback to explicit MCP calls                                                                                                   |
+| Feature ID | Feature                      | Status  | Description                                                                                                                                                                   |
+| ---------- | ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FEAT-0060  | Hook wrapper scripts         | planned | post-commit wrapper: backup pre-existing hook as .pre-opax, run original first, then `opax capture --post-commit` async (fire-and-forget). Detect husky/lefthook              |
+| FEAT-0061  | post-merge dirty flag        | planned | Install post-merge hook that touches .git/opax/dirty                                                                                                                          |
+| FEAT-0062  | `opax capture --post-commit` | planned | Hidden command invoked by hook. Detect sources → read sessions → scrub → write → create save. Trailers already attached by prepare-commit-msg; note fallback if --no-trailers |
+| FEAT-0063  | --no-hooks flag              | planned | Skip hook installation on init. Fallback to explicit MCP calls                                                                                                                |
 
 
 ---
 
-### Epic 12: Polish & Validation
+### EPIC-0012: Polish & Validation
 
 **Status:** planned
 
@@ -283,10 +283,10 @@ E0: Foundation
 
 | Feature ID | Feature              | Status  | Description                                                                                                              |
 | ---------- | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
-| FEAT-0064 | E2E integration test | planned | Full exit criteria scenario: init → simulate session → commit → verify save → search → verify results → verify scrubbing |
-| FEAT-0065 | Basic compaction     | planned | `opax storage compact` — run git gc on opax data, report before/after. No tiered archival yet                            |
-| FEAT-0066 | Error handling       | planned | Clear messages for: not a git repo, not initialized, empty DB, no results. Consistent formatting                         |
-| FEAT-0067 | Setup guides         | planned | README quickstart, Claude Code integration guide, Codex integration guide                                                |
+| FEAT-0064  | E2E integration test | planned | Full exit criteria scenario: init → simulate session → commit → verify save → search → verify results → verify scrubbing |
+| FEAT-0065  | Basic compaction     | planned | `opax storage compact` — run git gc on opax data, report before/after. No tiered archival yet                            |
+| FEAT-0066  | Error handling       | planned | Clear messages for: not a git repo, not initialized, empty DB, no results. Consistent formatting                         |
+| FEAT-0067  | Setup guides         | planned | README quickstart, Claude Code integration guide, Codex integration guide                                                |
 
 
 ---
@@ -332,13 +332,13 @@ E0: Foundation
 ## Phase 2: Remote Execution + Web Control Plane
 
 
-| Epic                  | Status  | Scope                                                                                         |
-| --------------------- | ------- | --------------------------------------------------------------------------------------------- |
-| P2.1 Remote Executors | planned | E2B sandbox executor, GitHub Actions executor, result collection                              |
+| Epic                  | Status  | Scope                                                                                 |
+| --------------------- | ------- | ------------------------------------------------------------------------------------- |
+| P2.1 Remote Executors | planned | E2B sandbox executor, GitHub Actions executor, result collection                      |
 | P2.2 Studio Local     | planned | `opax studio` temp local server, reads SQLite, session timeline + browser + search UI |
-| P2.3 Postgres Backend | planned | StorageBackend Postgres adapter, tsvector/tsquery FTS, JSONB + GIN indexes                    |
-| P2.4 Studio Hosted    | planned | Always-on dashboard, cross-repo views, SSO/RBAC, webhook notifications                        |
-| P2.5 First Adapters   | planned | LangGraph adapter, GitHub Actions adapter                                                     |
+| P2.3 Postgres Backend | planned | StorageBackend Postgres adapter, tsvector/tsquery FTS, JSONB + GIN indexes            |
+| P2.4 Studio Hosted    | planned | Always-on dashboard, cross-repo views, SSO/RBAC, webhook notifications                |
+| P2.5 First Adapters   | planned | LangGraph adapter, GitHub Actions adapter                                             |
 
 
 ---
@@ -360,19 +360,19 @@ E0: Foundation
 ## Key Files to Modify
 
 
-| File                                        | Epic | Role                                        |
-| ------------------------------------------- | ---- | ------------------------------------------- |
-| `cmd/opax/main.go`                          | E9   | CLI entry point, all command wiring         |
-| `internal/git/git.go`                       | E1   | Orphan branch + notes + refs (hardest code) |
-| `internal/store/store.go`                   | E5   | SQLite materialization + StorageBackend     |
-| `internal/cas/cas.go`                       | E2   | Content-addressed storage                   |
-| `internal/capture/capture.go`               | E7   | Capture coordinator                         |
-| `internal/capture/claude/claude.go`         | E7   | Claude Code JSONL reader                    |
-| `internal/capture/codex/codex.go`           | E7   | Codex session reader                        |
-| `internal/hygiene/hygiene.go`               | E3   | Secret scrubbing pipeline                   |
-| `internal/plugin/plugin.go`                 | E8   | Plugin interface + loading                  |
-| `internal/mcp/mcp.go`                       | E10  | MCP server                                  |
-| `plugins/memory/memory.go`                  | E8   | Memory plugin (primary value)               |
+| File                                | Epic | Role                                        |
+| ----------------------------------- | ---- | ------------------------------------------- |
+| `cmd/opax/main.go`                  | E9   | CLI entry point, all command wiring         |
+| `internal/git/git.go`               | E1   | Orphan branch + notes + refs (hardest code) |
+| `internal/store/store.go`           | E5   | SQLite materialization + StorageBackend     |
+| `internal/cas/cas.go`               | E2   | Content-addressed storage                   |
+| `internal/capture/capture.go`       | E7   | Capture coordinator                         |
+| `internal/capture/claude/claude.go` | E7   | Claude Code JSONL reader                    |
+| `internal/capture/codex/codex.go`   | E7   | Codex session reader                        |
+| `internal/hygiene/hygiene.go`       | E3   | Secret scrubbing pipeline                   |
+| `internal/plugin/plugin.go`         | E8   | Plugin interface + loading                  |
+| `internal/mcp/mcp.go`               | E10  | MCP server                                  |
+| `plugins/memory/memory.go`          | E8   | Memory plugin (primary value)               |
 
 
 **Planned files not yet present in repo:**
@@ -392,3 +392,4 @@ Phase 0 is verified by running the E2E integration test (E12.1):
 5. Simulate Codex session, same repo — `opax search` returns same results
 6. `opax storage stats` — shows record counts and sizes
 7. Verify content containing `AKIA...` test key shows `[REDACTED:aws_key]`
+

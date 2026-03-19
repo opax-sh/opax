@@ -1,7 +1,7 @@
 # FEAT-0005 - Repo Discovery
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Backlog  
+**Status:** In Progress  
 **Dependencies:** EPIC-0000 (config + lock utilities only)
 **Dependents:** FEAT-0006 through FEAT-0011
 

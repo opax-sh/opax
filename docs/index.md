@@ -8,7 +8,7 @@
 
 ### Active Features
 
-- [features/FEAT-0005-repo-discovery.md](features/FEAT-0005-repo-discovery.md) (`In Progress`)
+- [features/FEAT-0005-repo-discovery.md](features/FEAT-0005-repo-discovery.md) (`Completed`)
 - [features/FEAT-0006-orphan-branch-management.md](features/FEAT-0006-orphan-branch-management.md) (`Backlog`)
 - [features/FEAT-0007-write-records-to-branch.md](features/FEAT-0007-write-records-to-branch.md) (`Backlog`)
 - [features/FEAT-0008-read-records-from-branch.md](features/FEAT-0008-read-records-from-branch.md) (`Backlog`)

@@ -1,7 +1,7 @@
 # FEAT-0006 - Orphan Branch Management
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** In Progress
+**Status:** Completed
 **Dependencies:** FEAT-0005 (Repo discovery)
 **Dependents:** FEAT-0007, FEAT-0008, FEAT-0011, E5 rebuild/sync, E9 init
 
@@ -122,6 +122,7 @@ Calling `EnsureOpaxBranch` on an already valid branch is a no-op that returns th
 - **Current tip lost the sentinel due to a buggy prior write** - reject; this is branch corruption
 - **Remote-tracking `origin/opax/v1` exists but local branch does not** - out of scope here; this feature manages the local branch only
 - **Initialization interrupted before ref update** - unreachable objects are acceptable; the branch remains absent and the operation can be retried
+- **Concurrent bootstrap attempts** - missing-branch bootstrap takes `.git/opax.lock`, rechecks existence under lock, and creates the sentinel root exactly once
 
 ---
 
@@ -131,6 +132,7 @@ Calling `EnsureOpaxBranch` on an already valid branch is a no-op that returns th
 - The initial branch commit is orphaned and contains `meta/version.json`
 - The sentinel payload matches the required branch identity and layout version
 - `EnsureOpaxBranch` is idempotent when the branch already exists and is valid
+- Existing-branch validation is lock-free; only missing-branch bootstrap uses `.git/opax.lock`
 - `ValidateOpaxBranch` rejects non-commit refs, non-orphan roots, missing sentinel files, and malformed sentinel JSON
 - Initialization does not require `user.name` or `user.email`
 
@@ -143,6 +145,7 @@ Calling `EnsureOpaxBranch` on an already valid branch is a no-op that returns th
 | `TestEnsureOpaxBranchCreatesRoot` | First-time initialization | Local branch created with orphan root commit |
 | `TestEnsureOpaxBranchSentinel` | Sentinel contents | `meta/version.json` matches required JSON payload |
 | `TestEnsureOpaxBranchIdempotent` | Repeat creation | Existing valid tip returned, no new commit |
+| `TestEnsureOpaxBranchConcurrentBootstrap` | Bootstrap coordination | Concurrent callers (including linked worktree callers on shared `CommonGitDir`) converge on one root commit |
 | `TestValidateOpaxBranchMissingSentinel` | Corrupt branch detection | Validation error |
 | `TestValidateOpaxBranchWrongPayload` | Sentinel identity checks | Validation error |
 | `TestValidateOpaxBranchNonCommitRef` | Ref type safety | Validation error |

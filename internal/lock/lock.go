@@ -20,6 +20,10 @@ var (
 	// ErrStaleLock is returned when a stale or corrupt lock was detected.
 	// The lock package does not remove the file automatically.
 	ErrStaleLock = errors.New("lock: stale or corrupt lock detected")
+
+	// ErrAlreadyHeldByCurrentProcess is returned when the current process
+	// attempts to acquire a lock it already holds.
+	ErrAlreadyHeldByCurrentProcess = errors.New("lock: already held by current process")
 )
 
 const (
@@ -277,7 +281,7 @@ func isProcessAlive(pid int) (bool, error) {
 
 func staleError(path string, state lockState) error {
 	if state.staleReason == "already held by current process" {
-		return fmt.Errorf("lock: already held by current process: %s", path)
+		return fmt.Errorf("lock: already held by current process: %s: %w", path, ErrAlreadyHeldByCurrentProcess)
 	}
 	if state.hasInfo {
 		return fmt.Errorf("lock: stale or corrupt lock at %s (held by PID %d since %s: %s): %w", path, state.info.PID, state.info.AcquiredAt, state.staleReason, ErrStaleLock)

@@ -3,7 +3,7 @@
 **Status:** In Progress  
 **Version:** 1.0.0-draft
 **Date:** March 18, 2026
-**Dependencies:** EPIC-0000 (types, config, lock)
+**Dependencies:** EPIC-0000 (types, config, admin lock utility)
 **Dependents:** E4 (Integrated Write Path), E5 (SQLite Materialization), E8 (Memory Plugin), E9 (CLI Integration), E11 (Hooks & Init Lifecycle)
 
 ---
@@ -60,9 +60,18 @@ Implications:
 
 `FEAT-0008` exists so rebuild, sync, and debugging code can read records directly from `opax/v1`. It is **not** the public Phase 0 query surface. Public search and list flows still go through SQLite in later epics.
 
-### 4. Every Branch Write Uses Compare-And-Swap
+### 4. Mutable Ref Publication Uses Per-Ref CAS + Retry
 
-`FEAT-0007` must update `refs/heads/opax/v1` with an expected-old-tip check. No blind `update-ref`. If the tip changed unexpectedly, the write fails and the caller retries from a fresh view.
+`FEAT-0007` and `FEAT-0009` publish mutable refs with expected-old-tip checks (`CheckAndSetReference`). No blind `update-ref`.
+
+Phase 0 retry contract:
+
+- `maxRefPublishAttempts = 8`
+- exponential backoff starts at `10ms`, capped at `100ms`
+- missing-ref first publication is create-if-absent CAS (no blind `CheckAndSetReference(newRef, nil)`)
+- immutable object creation remains concurrent
+- `.git/opax.lock` is not part of steady-state record/note publication
+- repo-wide lock remains for bootstrap/admin flows only
 
 ### 5. Branch Commits Are Machine-Generated
 
@@ -92,9 +101,9 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 | ---------- | ------------------------ | -------------------------------------------------------------------------------- | --------------------------------------------- |
 | FEAT-0005  | Repo discovery           | Resolve repo root, real git dir, common git dir, and `.git/opax/` ownership      | Foundation for every other git feature        |
 | FEAT-0006  | Orphan branch management | Create and validate `opax/v1` with a root sentinel                               | Defines what a valid Opax branch is           |
-| FEAT-0007  | Write records to branch  | Append-only record writes using blobs, trees, commits, and CAS-style ref updates | Hardest feature in the epic                   |
+| FEAT-0007  | Write records to branch  | Append-only record writes using blobs, trees, commits, and per-ref CAS retry      | Hardest feature in the epic                   |
 | FEAT-0008  | Read records from branch | Point reads from `opax/v1` by record ID/path                                     | Internal primitive for rebuild/sync/debugging |
-| FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/opax/notes/`*                                  | Mutable metadata layer                        |
+| FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/opax/notes/`* with per-namespace CAS retry      | Mutable metadata layer                        |
 | FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
 | FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
 
@@ -120,6 +129,8 @@ It may **not**:
 - perform hygiene or CAS logic
 - materialize SQLite rows
 - install hook wrapper scripts
+
+Steady-state writes must follow optimistic per-ref CAS publication. Repo-wide lock usage is exceptional (bootstrap/admin only).
 
 ### Repo Context Contract
 
@@ -244,8 +255,9 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 
 - `FEAT-0005` resolves normal repos, worktrees, and submodules correctly
 - `FEAT-0006` creates `refs/heads/opax/v1` idempotently and rejects malformed branches
+- `FEAT-0006` takes `.git/opax.lock` only for missing-branch bootstrap; existing-branch validation is lock-free
 - `FEAT-0007` writes records without touching the working tree and rejects duplicate record IDs
-- `FEAT-0007` uses `.git/opax.lock` and compare-and-swap ref updates
+- `FEAT-0007` uses per-ref CAS publish with bounded retry; `.git/opax.lock` is bootstrap/admin-only
 - `FEAT-0008` can read branch records directly by deterministic path
 - `FEAT-0009` can bootstrap missing notes refs and enumerate notes for rebuild
 - `FEAT-0010` inserts exactly one valid `Opax-Save` trailer and parses it back from commits
@@ -263,5 +275,3 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 | `internal/git/git.go`      | Repo discovery, branch management, branch read/write helpers, notes, trailers, refspec helpers |
 | `internal/git/git_test.go` | Table-driven tests and repo-fixture integration tests                                          |
 | `internal/git/testdata/`   | Small test repositories and message fixtures as needed                                         |
-
-

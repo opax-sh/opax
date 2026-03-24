@@ -25,7 +25,7 @@ Opax metadata (sessions, saves, plugin data) needs to live in git without pollut
 
 ### Option C — Single orphan branch with sharded directory layout
 - Pros: one ref to sync. Git shares tree objects between commits, delta compression works across full history. Sharded directories (first two chars of ID) prevent single-directory bloat. Excluded from default fetch — invisible unless explicitly synced.
-- Cons: all writes serialized to one branch (acceptable in Phase 0 with `.git/opax.lock`).
+- Cons: final publication still serializes at one branch ref; writers must use per-ref CAS with retry to avoid lost updates.
 
 ## Decision
 Option C. All Opax metadata lives on `opax/v1`, a single orphan branch with sharded directory structure. Adopted from Entire.io's architecture.
@@ -40,9 +40,10 @@ The branch is excluded from default fetch via refspec design — `opax pull` and
 - Invisible to developers who don't use Opax
 
 ### Negative
-- Write serialization via lock file (acceptable for Phase 0 volumes)
+- Branch-tip publication conflicts are expected under concurrency and require CAS retry logic
 - Concurrent multi-machine writes require conflict resolution (deferred to hosted tier)
 
 ### Follow-up
-- Lock file implementation in SDK
+- Per-ref CAS publish helper with bounded retry in SDK
+- Keep `.git/opax.lock` for bootstrap/admin coordination flows only
 - Conflict resolution strategy for hosted/multi-machine scenarios

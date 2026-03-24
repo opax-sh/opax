@@ -74,7 +74,13 @@ opax/v1/
 
 **Sharding:** The shard directory is the first two hex characters of `sha256(record_id)`. This gives 256 uniformly distributed buckets regardless of ID prefix or creation time, keeping append cost constant at ~60ms even at 100k+ records. See `docs/misc/sharding-research.md` for benchmarks.
 
-**Write mechanics:** Adding a record uses git plumbing commands (`hash-object`, `mktree`, `commit-tree`, `update-ref`) or a git library. The working tree is never checked out. Writes are serialized via `.git/opax.lock`.
+**Write mechanics:** Adding a record uses git plumbing commands (`hash-object`, `mktree`, `commit-tree`, `update-ref`) or a git library. The working tree is never checked out.
+
+Concurrency contract:
+
+- immutable object creation is concurrent
+- mutable ref publication uses strict per-ref CAS with retry (including create-if-absent for missing refs)
+- repo-wide `.git/opax.lock` is reserved for bootstrap/admin coordination, not steady-state record writes
 
 **Read mechanics:** The SQLite index maps record IDs to `(commit, path)` tuples. Reads go through SQLite, not branch enumeration.
 

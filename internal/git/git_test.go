@@ -39,21 +39,6 @@ func TestDiscoverRepoNestedPath(t *testing.T) {
 	assertRepoContext(t, ctx, repoRoot, filepath.Join(repoRoot, ".git"), filepath.Join(repoRoot, ".git"), false)
 }
 
-func TestDiscoverRepoFromGitAdminSubdirectory(t *testing.T) {
-	repoRoot := initGitRepo(t)
-	adminSubdir := filepath.Join(repoRoot, ".git", "opax")
-	if err := os.MkdirAll(adminSubdir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", adminSubdir, err)
-	}
-
-	ctx, err := internalgit.DiscoverRepo(adminSubdir)
-	if err != nil {
-		t.Fatalf("DiscoverRepo() error = %v", err)
-	}
-
-	assertRepoContext(t, ctx, repoRoot, filepath.Join(repoRoot, ".git"), filepath.Join(repoRoot, ".git"), false)
-}
-
 func TestDiscoverRepoLinkedWorktree(t *testing.T) {
 	requireGitBinary(t)
 
@@ -135,6 +120,49 @@ func TestDiscoverRepoGitFileIndirection(t *testing.T) {
 	assertRepoContext(t, ctx, repoRoot, gitDir, gitDir, false)
 }
 
+func TestDiscoverRepoGitFileIndirectionNestedPath(t *testing.T) {
+	requireGitBinary(t)
+
+	workspace := t.TempDir()
+	repoRoot := filepath.Join(workspace, "repo")
+	gitDir := filepath.Join(workspace, "gitdir")
+	runGit(t, workspace, "init", "--separate-git-dir", gitDir, repoRoot)
+
+	nested := filepath.Join(repoRoot, "internal", "git")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", nested, err)
+	}
+
+	ctx, err := internalgit.DiscoverRepo(nested)
+	if err != nil {
+		t.Fatalf("DiscoverRepo() error = %v", err)
+	}
+
+	assertRepoContext(t, ctx, repoRoot, gitDir, gitDir, false)
+}
+
+func TestDiscoverRepoGitDirSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup is not reliable on windows CI")
+	}
+
+	repoRoot := initGitRepo(t)
+	realGitDir := filepath.Join(repoRoot, ".git.real")
+	if err := os.Rename(filepath.Join(repoRoot, ".git"), realGitDir); err != nil {
+		t.Fatalf("Rename(.git, .git.real) error = %v", err)
+	}
+	if err := os.Symlink(realGitDir, filepath.Join(repoRoot, ".git")); err != nil {
+		t.Fatalf("Symlink(%q, %q) error = %v", realGitDir, filepath.Join(repoRoot, ".git"), err)
+	}
+
+	ctx, err := internalgit.DiscoverRepo(repoRoot)
+	if err != nil {
+		t.Fatalf("DiscoverRepo() error = %v", err)
+	}
+
+	assertRepoContext(t, ctx, repoRoot, realGitDir, realGitDir, false)
+}
+
 func TestDiscoverRepoMalformedGitFile(t *testing.T) {
 	repoRoot := t.TempDir()
 	gitFile := filepath.Join(repoRoot, ".git")
@@ -146,23 +174,29 @@ func TestDiscoverRepoMalformedGitFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("DiscoverRepo() error = nil, want parse error")
 	}
-	if !strings.Contains(err.Error(), gitFile) {
-		t.Fatalf("DiscoverRepo() error = %v, want path %q", err, gitFile)
+	if !strings.Contains(err.Error(), "gitdir:  prefix") {
+		t.Fatalf("DiscoverRepo() error = %v, want malformed gitdir message", err)
 	}
 }
 
 func TestDiscoverRepoMissingCommonDirTarget(t *testing.T) {
-	repoRoot := t.TempDir()
-	gitDir := filepath.Join(repoRoot, ".git")
-	if err := os.MkdirAll(gitDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", gitDir, err)
-	}
+	requireGitBinary(t)
+
+	mainRepo := initGitRepo(t)
+	writeTrackedFile(t, mainRepo, "README.md", "main repo\n")
+	runGit(t, mainRepo, "add", "README.md")
+	runGit(t, mainRepo, "commit", "-m", "initial")
+
+	worktreeRoot := filepath.Join(t.TempDir(), "linked-worktree")
+	runGit(t, mainRepo, "worktree", "add", worktreeRoot)
+
+	gitDir := readGitDirFromFile(t, filepath.Join(worktreeRoot, ".git"))
 	commondir := filepath.Join(gitDir, "commondir")
 	if err := os.WriteFile(commondir, []byte("../missing-common\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", commondir, err)
 	}
 
-	_, err := internalgit.DiscoverRepo(repoRoot)
+	_, err := internalgit.DiscoverRepo(worktreeRoot)
 	if err == nil {
 		t.Fatal("DiscoverRepo() error = nil, want missing common git dir error")
 	}

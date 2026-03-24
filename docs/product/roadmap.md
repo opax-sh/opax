@@ -8,7 +8,24 @@
 
 ## Context
 
-This roadmap defines the build order from current state through Phase 0 (MVP) and outlines Phases 1-3 at epic level. It will be broken into epics and features for execution.
+This roadmap defines the build order from current state through Phase 0 (MVP) and outlines Phases 1-5 at epic level. It will be broken into epics and features for execution.
+
+### Vision Roadmap
+
+The full product arc, from CLI to platform. See `overview.md` for detailed rationale.
+
+```
+Phase 0: CLI + Passive Capture + Memory          ← distribution (free, open-source)
+Phase 1: Workflows + Evals + Executors            ← orchestration foundation
+Phase 2: Studio + Remote Execution + Postgres     ← first revenue (team subscriptions)
+Phase 3: Ecosystem + Compliance + Adapters        ← ecosystem + enterprise
+Phase 4: Intelligence Layer                       ← moat (cross-repo memory, quality scoring)
+Phase 5: Ecosystem & Generalization               ← platform (marketplace, multi-language SDKs)
+```
+
+Memory and orchestration are inseparable — neither is useful alone at scale. Phase 0 ships memory. Phase 1 adds orchestration. Together they form the core value prop: agents that coordinate AND learn from each other's sessions.
+
+Git is the coordination substrate throughout: branches are work units, commits are stage gates, hooks are transitions, PRs are review gates. Execution is pluggable from Phase 1 onward — agents can run in Docker, CI, cloud sandboxes, serverless, etc. via thin executor drivers.
 
 ### Current implementation snapshot (repo)
 
@@ -319,9 +336,9 @@ E0: Foundation
 
 | Epic                    | Status  | Scope                                                                                                                                          |
 | ----------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| P1.1 Workflows Plugin   | planned | YAML workflow format, state machine (pending→running→completed/failed), git-event triggers, stage dispatch, human approval gates, CLI commands |
+| P1.1 Workflows Plugin   | planned | YAML workflow format in `.opax/workflows/`, DAG-based stage sequencing, git-event triggers (push, PR, merge), stage dispatch via executor drivers, human approval gates, CLI commands. Git primitives as orchestration substrate: branches = work units, commits = stage gates, hooks = transitions |
 | P1.2 Evals Plugin       | planned | Eval note format/schema, LLM-as-judge framework (thin), git note attachment, CLI commands                                                      |
-| P1.3 Executor Plugins   | planned | Local process executor, Docker executor, executor interface for Phase 2 remote                                                                 |
+| P1.3 Executor Drivers   | planned | Executor driver contract: branch + context bundle (Opax memory) + task spec → session + completion signal. Local process driver, Docker driver. Interface designed for Phase 2 remote drivers (CI, cloud sandboxes, serverless) |
 | P1.4 Encryption at Rest | planned | age library, per-tier recipient keys, file-level encryption (content only, metadata plaintext), transparent decryption in read path            |
 | P1.5 Basic Compliance   | planned | Article 12 evidence packages, session counts, agent summaries, human oversight records, `opax compliance report`                               |
 | P1.6 Additional Capture | planned | Cursor session reader, Gemini CLI session reader                                                                                               |
@@ -332,13 +349,13 @@ E0: Foundation
 ## Phase 2: Remote Execution + Web Control Plane
 
 
-| Epic                  | Status  | Scope                                                                                 |
-| --------------------- | ------- | ------------------------------------------------------------------------------------- |
-| P2.1 Remote Executors | planned | E2B sandbox executor, GitHub Actions executor, result collection                      |
-| P2.2 Studio Local     | planned | `opax studio` temp local server, reads SQLite, session timeline + browser + search UI |
-| P2.3 Postgres Backend | planned | StorageBackend Postgres adapter, tsvector/tsquery FTS, JSONB + GIN indexes            |
-| P2.4 Studio Hosted    | planned | Always-on dashboard, cross-repo views, SSO/RBAC, webhook notifications                |
-| P2.5 First Adapters   | planned | LangGraph adapter, GitHub Actions adapter                                             |
+| Epic                        | Status  | Scope                                                                                 |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| P2.1 Remote Executor Drivers | planned | E2B sandbox driver, GitHub Actions driver, Cloud Run driver, result collection         |
+| P2.2 Studio Local           | planned | `opax studio` temp local server, reads SQLite, session timeline + browser + search UI, workflow DAG visualizer |
+| P2.3 Postgres Backend       | planned | StorageBackend Postgres adapter, tsvector/tsquery FTS, JSONB + GIN indexes            |
+| P2.4 Studio Hosted          | planned | Always-on dashboard, cross-repo views, SSO/RBAC, webhook notifications, managed orchestration dispatch, live workflow monitoring |
+| P2.5 First Adapters         | planned | LangGraph adapter, GitHub Actions adapter                                             |
 
 
 ---
@@ -353,6 +370,31 @@ E0: Foundation
 | P3.3 Semantic Search     | planned | Local embeddings, SemanticStrategy, hybrid search                            |
 | P3.4 Additional Adapters | planned | Temporal, Braintrust, Langfuse adapters                                      |
 | P3.5 Team Features       | planned | Shared workflow configs, notification channels, cross-team dashboards        |
+
+
+---
+
+## Phase 4: Intelligence Layer
+
+
+| Epic                       | Status  | Scope                                                                                                  |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| P4.1 Cross-Repo Memory     | planned | Agents on Project A learn from patterns in Project B. Hosted Postgres aggregation across repos          |
+| P4.2 Quality Scoring       | planned | Automatically assess agent output quality over time. Feed into search ranking                           |
+| P4.3 Workflow Insights      | planned | Recommendations based on aggregate usage ("teams like yours add a security review stage here")          |
+| P4.4 Cost Analytics         | planned | Token usage, model costs, execution costs per workflow/stage/team. Dashboard views                      |
+
+
+---
+
+## Phase 5: Ecosystem & Generalization
+
+
+| Epic                          | Status  | Scope                                                                                                  |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| P5.1 Workflow Marketplace      | planned | Third-party workflow templates ("code review pipeline for Rails," "security audit for Go")              |
+| P5.2 Multi-Language SDKs       | planned | Python and TypeScript SDKs implementing the git data spec. Agents call `import opax` natively           |
+| P5.3 Domain Generalization     | planned | If demand emerges: non-git storage drivers, workflow templates for non-dev domains (legal, finance, etc.). Architectural option, not a commitment — the core primitives (work containers, checkpoints, actor sessions, stage transitions) are already domain-agnostic |
 
 
 ---

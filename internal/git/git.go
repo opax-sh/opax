@@ -708,9 +708,7 @@ func writeRecordTreeNode(repo *ggit.Repository, node *recordTreeNode) (plumbing.
 			Hash: hash,
 		})
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name < entries[j].Name
-	})
+	sortTreeEntries(entries)
 
 	return writeTree(repo, entries)
 }
@@ -784,17 +782,16 @@ func upsertRecordTreeRecursive(
 }
 
 func entriesFromMap(entries map[string]object.TreeEntry) []object.TreeEntry {
-	sortedNames := make([]string, 0, len(entries))
-	for name := range entries {
-		sortedNames = append(sortedNames, name)
+	result := make([]object.TreeEntry, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, entry)
 	}
-	sort.Strings(sortedNames)
-
-	result := make([]object.TreeEntry, 0, len(sortedNames))
-	for _, name := range sortedNames {
-		result = append(result, entries[name])
-	}
+	sortTreeEntries(result)
 	return result
+}
+
+func sortTreeEntries(entries []object.TreeEntry) {
+	sort.Sort(object.TreeEntrySorter(entries))
 }
 
 func findTreeEntryByName(entries []object.TreeEntry, name string) (object.TreeEntry, bool) {

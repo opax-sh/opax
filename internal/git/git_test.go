@@ -703,6 +703,45 @@ func TestWriteRecordSessionPath(t *testing.T) {
 	}
 }
 
+func TestWriteRecordAllowsDirectoryAndPrefixedFileNames(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata/details.json", Content: []byte(`{"nested":true}`)},
+			{Path: "metadata.json", Content: []byte(`{"top":true}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	wantRoot := expectedRecordRoot("sessions", recordID)
+	if result.RecordRoot != wantRoot {
+		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
+	}
+
+	repo := mustOpenRepo(t, repoRoot)
+	commit, err := repo.CommitObject(result.CommitHash)
+	if err != nil {
+		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
+	}
+
+	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata/details.json")); got != `{"nested":true}` {
+		t.Fatalf("metadata/details.json content = %q", got)
+	}
+	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata.json")); got != `{"top":true}` {
+		t.Fatalf("metadata.json content = %q", got)
+	}
+}
+
 func TestWriteRecordSavePath(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)

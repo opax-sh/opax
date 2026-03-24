@@ -1,11 +1,13 @@
 package git_test
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	internalgit "github.com/opax-sh/opax/internal/git"
 	"github.com/opax-sh/opax/internal/lock"
+	"github.com/opax-sh/opax/internal/types"
 )
 
 const (
@@ -651,6 +654,432 @@ func TestEnsureOpaxBranchLinkedWorktreeUsesCommonRepoState(t *testing.T) {
 	}
 }
 
+func TestWriteRecordSessionPath(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"id":"` + recordID + `"}`)},
+			{Path: "summary.md", Content: []byte("session summary\n")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	wantRoot := expectedRecordRoot("sessions", recordID)
+	if result.RecordRoot != wantRoot {
+		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
+	}
+	if result.BranchTip != result.CommitHash {
+		t.Fatalf("BranchTip = %s, want CommitHash %s", result.BranchTip, result.CommitHash)
+	}
+
+	repo := mustOpenRepo(t, repoRoot)
+	commit, err := repo.CommitObject(result.CommitHash)
+	if err != nil {
+		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
+	}
+	if commit.Message != "opax: write sessions "+recordID {
+		t.Fatalf("commit message = %q, want %q", commit.Message, "opax: write sessions "+recordID)
+	}
+	if commit.Author.Name != "Opax" || commit.Author.Email != "opax@local" {
+		t.Fatalf("Author = %q <%s>, want Opax <opax@local>", commit.Author.Name, commit.Author.Email)
+	}
+	if commit.Committer.Name != "Opax" || commit.Committer.Email != "opax@local" {
+		t.Fatalf("Committer = %q <%s>, want Opax <opax@local>", commit.Committer.Name, commit.Committer.Email)
+	}
+
+	gotMetadata := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata.json"))
+	if gotMetadata != `{"id":"`+recordID+`"}` {
+		t.Fatalf("metadata.json content = %q", gotMetadata)
+	}
+}
+
+func TestWriteRecordSavePath(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSaveID().String()
+	result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "saves",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"id":"` + recordID + `"}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	wantRoot := expectedRecordRoot("saves", recordID)
+	if result.RecordRoot != wantRoot {
+		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
+	}
+
+	repo := mustOpenRepo(t, repoRoot)
+	commit, err := repo.CommitObject(result.CommitHash)
+	if err != nil {
+		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
+	}
+	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata.json")); got == "" {
+		t.Fatal("metadata.json content = empty, want non-empty")
+	}
+}
+
+func TestWriteRecordExtensionPath(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	suffix := strings.TrimPrefix(types.NewSessionID().String(), "ses_")
+	recordID := "wrk_" + suffix
+	result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "ext-workflows",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"id":"` + recordID + `"}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	wantRoot := expectedRecordRoot("ext-workflows", recordID)
+	if result.RecordRoot != wantRoot {
+		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
+	}
+}
+
+func TestWriteRecordRejectsAbsolutePath(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	_, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "/metadata.json", Content: []byte("{}")},
+		},
+	})
+	if err == nil {
+		t.Fatal("WriteRecord() error = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "must be relative") {
+		t.Fatalf("WriteRecord() error = %v, want relative-path validation", err)
+	}
+}
+
+func TestWriteRecordRejectsParentTraversal(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	_, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "../metadata.json", Content: []byte("{}")},
+		},
+	})
+	if err == nil {
+		t.Fatal("WriteRecord() error = nil, want traversal validation error")
+	}
+	if !strings.Contains(err.Error(), "parent traversal") {
+		t.Fatalf("WriteRecord() error = %v, want parent traversal validation", err)
+	}
+}
+
+func TestWriteRecordExpectedTipMismatch(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	initialTip, err := internalgit.EnsureOpaxBranch(ctx)
+	if err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	_, err = internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   types.NewSessionID().String(),
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte("{}")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() warm-up error = %v", err)
+	}
+
+	_, err = internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection:  "sessions",
+		RecordID:    types.NewSessionID().String(),
+		Files:       []internalgit.RecordFile{{Path: "metadata.json", Content: []byte("{}")}},
+		ExpectedTip: &initialTip,
+	})
+	if !errors.Is(err, internalgit.ErrTipChanged) {
+		t.Fatalf("WriteRecord() error = %v, want ErrTipChanged", err)
+	}
+}
+
+func TestWriteRecordDuplicateRace(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	const writers = 2
+	errCh := make(chan error, writers)
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+				Collection: "sessions",
+				RecordID:   recordID,
+				Files: []internalgit.RecordFile{
+					{
+						Path:    "metadata.json",
+						Content: []byte(fmt.Sprintf(`{"worker":%d}`, i)),
+					},
+				},
+			})
+			errCh <- err
+		}(i)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	successes := 0
+	duplicates := 0
+	for err := range errCh {
+		if err == nil {
+			successes++
+			continue
+		}
+		if errors.Is(err, internalgit.ErrRecordExists) {
+			duplicates++
+			continue
+		}
+		t.Fatalf("WriteRecord() race error = %v, want nil or ErrRecordExists", err)
+	}
+
+	if successes != 1 || duplicates != 1 {
+		t.Fatalf("duplicate race outcome = successes:%d duplicates:%d, want 1/1", successes, duplicates)
+	}
+}
+
+func TestWriteRecordConcurrentDistinctIDs(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	const writers = 8
+	errCh := make(chan error, writers)
+	roots := make(chan string, writers)
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			recordID := types.NewSessionID().String()
+			result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+				Collection: "sessions",
+				RecordID:   recordID,
+				Files: []internalgit.RecordFile{
+					{Path: "metadata.json", Content: []byte(fmt.Sprintf(`{"worker":%d}`, i))},
+				},
+			})
+			if err == nil {
+				roots <- result.RecordRoot
+			}
+			errCh <- err
+		}(i)
+	}
+
+	wg.Wait()
+	close(errCh)
+	close(roots)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("WriteRecord() error = %v", err)
+		}
+	}
+
+	tip, err := internalgit.GetOpaxBranchTip(ctx)
+	if err != nil {
+		t.Fatalf("GetOpaxBranchTip() error = %v", err)
+	}
+	repo := mustOpenRepo(t, repoRoot)
+	commit, err := repo.CommitObject(tip)
+	if err != nil {
+		t.Fatalf("CommitObject(%s) error = %v", tip, err)
+	}
+	for recordRoot := range roots {
+		path := pathpkg.Join(recordRoot, "metadata.json")
+		if got := readFileAtCommitPath(t, commit, path); got == "" {
+			t.Fatalf("record path %q missing or empty", path)
+		}
+	}
+}
+
+func TestWriteRecordConcurrentLinkedWorktrees(t *testing.T) {
+	requireGitBinary(t)
+
+	mainRepo := initGitRepo(t)
+	writeTrackedFile(t, mainRepo, "README.md", "main repo\n")
+	runGit(t, mainRepo, "add", "README.md")
+	runGit(t, mainRepo, "commit", "-m", "initial")
+
+	worktreeRoot := filepath.Join(t.TempDir(), "linked-worktree")
+	runGit(t, mainRepo, "worktree", "add", worktreeRoot)
+
+	mainCtx := mustDiscoverRepo(t, mainRepo)
+	worktreeCtx := mustDiscoverRepo(t, worktreeRoot)
+	if _, err := internalgit.EnsureOpaxBranch(mainCtx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	const writers = 6
+	errCh := make(chan error, writers)
+	roots := make(chan string, writers)
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ctx := mainCtx
+			if i%2 == 1 {
+				ctx = worktreeCtx
+			}
+			recordID := types.NewSessionID().String()
+			result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+				Collection: "sessions",
+				RecordID:   recordID,
+				Files:      []internalgit.RecordFile{{Path: "metadata.json", Content: []byte(`{"ok":true}`)}},
+			})
+			if err == nil {
+				roots <- result.RecordRoot
+			}
+			errCh <- err
+		}(i)
+	}
+
+	wg.Wait()
+	close(errCh)
+	close(roots)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("WriteRecord() error = %v", err)
+		}
+	}
+
+	tip, err := internalgit.GetOpaxBranchTip(mainCtx)
+	if err != nil {
+		t.Fatalf("GetOpaxBranchTip() error = %v", err)
+	}
+	repo := mustOpenRepo(t, mainRepo)
+	commit, err := repo.CommitObject(tip)
+	if err != nil {
+		t.Fatalf("CommitObject(%s) error = %v", tip, err)
+	}
+	for recordRoot := range roots {
+		path := pathpkg.Join(recordRoot, "metadata.json")
+		if got := readFileAtCommitPath(t, commit, path); got == "" {
+			t.Fatalf("linked-worktree record path %q missing or empty", path)
+		}
+	}
+}
+
+func TestWriteRecordPreservesSentinel(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	_, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   types.NewSessionID().String(),
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"ok":true}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	if err := internalgit.ValidateOpaxBranch(ctx); err != nil {
+		t.Fatalf("ValidateOpaxBranch() error after write = %v", err)
+	}
+
+	tip, err := internalgit.GetOpaxBranchTip(ctx)
+	if err != nil {
+		t.Fatalf("GetOpaxBranchTip() error = %v", err)
+	}
+	repo := mustOpenRepo(t, repoRoot)
+	commit, err := repo.CommitObject(tip)
+	if err != nil {
+		t.Fatalf("CommitObject(%s) error = %v", tip, err)
+	}
+	assertExpectedSentinel(t, readSentinelFromCommit(t, commit))
+}
+
+func TestWriteRecordNoWorkingTreeChanges(t *testing.T) {
+	requireGitBinary(t)
+
+	repoRoot := initGitRepo(t)
+	writeTrackedFile(t, repoRoot, "README.md", "source repo\n")
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "initial")
+
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	before := strings.TrimSpace(runGit(t, repoRoot, "status", "--short"))
+	_, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   types.NewSessionID().String(),
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"ok":true}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+	after := strings.TrimSpace(runGit(t, repoRoot, "status", "--short"))
+	if after != before {
+		t.Fatalf("working tree status changed: before=%q after=%q", before, after)
+	}
+}
+
 func assertRepoContext(t *testing.T, ctx *internalgit.RepoContext, repoRoot, gitDir, commonGitDir string, linked bool) {
 	t.Helper()
 
@@ -814,6 +1243,29 @@ func assertExpectedSentinel(t *testing.T, sentinel opaxSentinel) {
 	if sentinel != expected {
 		t.Fatalf("sentinel = %+v, want %+v", sentinel, expected)
 	}
+}
+
+func readFileAtCommitPath(t *testing.T, commit *object.Commit, recordPath string) string {
+	t.Helper()
+
+	tree, err := commit.Tree()
+	if err != nil {
+		t.Fatalf("Tree(%s) error = %v", commit.Hash, err)
+	}
+	file, err := tree.File(recordPath)
+	if err != nil {
+		t.Fatalf("File(%q) error = %v", recordPath, err)
+	}
+	content, err := file.Contents()
+	if err != nil {
+		t.Fatalf("Contents(%q) error = %v", recordPath, err)
+	}
+	return content
+}
+
+func expectedRecordRoot(collection, recordID string) string {
+	sum := sha256.Sum256([]byte(recordID))
+	return pathpkg.Join(collection, fmt.Sprintf("%x", sum[:])[:2], recordID)
 }
 
 func expectedSentinelJSON() string {

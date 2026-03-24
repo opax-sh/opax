@@ -30,7 +30,7 @@ The same properties apply to agent data stored alongside code.
 
 ### What Opax adds
 
-Opax defines an open specification for storing agent data as standard git objects, provides a Go SDK for reading and writing that data, passive capture that records agent sessions after the fact, a CLI for querying context, and an MCP server for platforms without shell access. A local SQLite database provides fast queries over the git data.
+Opax defines an open specification for storing agent data as standard git objects, provides an SDK for reading and writing that data, passive capture that records agent sessions after the fact, and a CLI for querying context. A local SQLite database provides fast queries over the git data.
 
 Memory and orchestration are combined because neither is useful alone. Memory without orchestration means agents remember but work in isolation. Orchestration without memory means agents coordinate but start blind. Combined: agents coordinate and learn from each other's sessions.
 
@@ -45,8 +45,6 @@ Opax is a **data spec** for agent data as git objects, an **SDK** for reading an
 Opax is not an intra-session orchestration engine (LangGraph, Temporal, Genkit). Those handle real-time coordination within a single agent session. Opax handles inter-session coordination: what work happens in what order, passing context between stages, enforcing review gates, recording what happened. Those tools are complementary — adapter plugins normalize their output into the Opax data format.
 
 Opax is not an execution environment. It does not manage containers, sandboxes, or CI pipelines. Execution is pluggable via thin drivers. The orchestrator defines what happens; drivers handle where it runs.
-
-Opax is not a code host. It renders data that code hosts ignore — orphan branches, git notes, commit trailers. The moment it starts building code viewers or PR reviews, it's accidentally building GitHub.
 
 ---
 

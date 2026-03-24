@@ -100,6 +100,11 @@ Scaffolded (package exists, major behavior still pending):
 - `internal/plugin`
 - `plugins/memory`
 
+Planned (not yet present, Phase 1+):
+- `internal/orchestrate` — workflow engine: DAG parsing, state machine, git-event trigger evaluation, stage dispatch
+- `internal/drivers` — executor driver interface and implementations (local process, Docker, CI, cloud sandboxes)
+- `.opax/workflows/` — user-facing workflow definition directory (YAML, versioned in repo alongside code)
+
 ---
 
 ## 4. Conventions

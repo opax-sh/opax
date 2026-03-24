@@ -1,6 +1,6 @@
 # EPIC-0001: Git Plumbing Layer
 
-**Status:** Backlog  
+**Status:** In Progress  
 **Version:** 1.0.0-draft
 **Date:** March 18, 2026
 **Dependencies:** EPIC-0000 (types, config, lock)

@@ -304,7 +304,8 @@ func WriteRecord(ctx *RepoContext, req WriteRequest) (*WriteResult, error) {
 		return nil, err
 	}
 
-	// Validate branch shape before attempting record writes.
+	// Validate branch shape once before attempting record writes. Re-validating
+	// inside publish retries would re-walk branch ancestry on every conflict.
 	if err := ValidateOpaxBranch(ctx); err != nil {
 		return nil, err
 	}
@@ -323,10 +324,6 @@ func writeRecordWithExpectedTip(
 ) (*WriteResult, error) {
 	repo, err := openRepoFromContext(ctx)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := validateOpaxBranch(repo); err != nil {
 		return nil, err
 	}
 
@@ -373,9 +370,6 @@ func writeRecordWithRetry(
 	publishedRef, err := publishRefWithRetry(ctx, refName, func(repo *ggit.Repository, currentRef *plumbing.Reference) (*plumbing.Reference, error) {
 		if currentRef == nil {
 			return nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, plumbing.ErrReferenceNotFound)
-		}
-		if err := validateOpaxBranch(repo); err != nil {
-			return nil, err
 		}
 
 		nextRef, err := buildRecordWriteReference(repo, currentRef, req)

@@ -188,6 +188,9 @@ func TestAcquireReentrant(t *testing.T) {
 	if err == nil {
 		t.Fatal("Acquire() error = nil, want reentrant error")
 	}
+	if !errors.Is(err, lock.ErrAlreadyHeldByCurrentProcess) {
+		t.Fatalf("Acquire() error = %v, want ErrAlreadyHeldByCurrentProcess", err)
+	}
 	if strings.Contains(err.Error(), lock.ErrStaleLock.Error()) {
 		t.Fatalf("Acquire() error = %v, want explicit reentrant error without ErrStaleLock", err)
 	}

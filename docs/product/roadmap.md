@@ -84,7 +84,7 @@ E0: Foundation
 | FEAT-0001  | Add dependencies     | completed | go-git, modernc.org/sqlite, oklog/ulid, yaml.v3, MCP Go SDK                                                                                                                                                                                                                                                 |
 | FEAT-0002  | Core domain types    | completed | `internal/types/` — record ID types (ses_, sav_), Hygiene metadata on Session/Save, SessionMetadata (includes files_touched), SaveMetadata (sessions array with attribution), NoteContent, enums (ScrubMode, AttrReason), ULID generation helper. Plugin ID prefixes (wrk_, act_) registered at plugin load |
 | FEAT-0003  | Configuration system | completed | `internal/config/` — OpaxConfig struct (hygiene, storage, capture, trailers), single `config.yaml` with hierarchy (SDK defaults → team `.opax/config.yaml` → personal `~/.config/opax/config.yaml`), strict validation                                                                                      |
-| FEAT-0004  | File lock utility    | completed | `internal/lock/` — .git/opax.lock for write serialization, advisory locking with timeout, deferred cleanup                                                                                                                                                                                                  |
+| FEAT-0004  | File lock utility    | completed | `internal/lock/` — .git/opax.lock for bootstrap/admin coordination, advisory locking with timeout, deferred cleanup                                                                                                                                                                                         |
 
 
 ---
@@ -100,7 +100,7 @@ E0: Foundation
 | ---------- | ------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | FEAT-0005  | Repo discovery           | In Progress | Open git repo via go-git, validate, locate .git/, create .git/opax/                                                                                                                                                                                                            |
 | FEAT-0006  | Orphan branch mgmt       | planned     | Create `opax/v1` if absent (first commit with version marker), read current tip, idempotent                                                                                                                                                                                    |
-| FEAT-0007  | Write records to branch  | planned     | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build full tree from current tip + new subtree. Acquire .git/opax.lock. Fallback: shell out to git plumbing if go-git is too awkward |
+| FEAT-0007  | Write records to branch  | planned     | **Hardest task.** hash-object → mktree → commit-tree → update-ref. Shard directory (first 2 hex chars of sha256(record_id), 256 buckets). Build against current tip and publish with per-ref CAS retry (`8` attempts, `10-100ms` backoff). Fallback: shell out to git plumbing if go-git is too awkward |
 | FEAT-0008  | Read records from branch | planned     | Navigate tree at branch tip to shard/id path, read blob contents                                                                                                                                                                                                               |
 | FEAT-0009  | Git notes operations     | planned     | Write/read JSON notes under namespaces (refs/opax/notes/sessions, etc.), handle missing notes ref                                                                                                                                                                              |
 | FEAT-0010  | Commit trailer support   | planned     | Preallocate save IDs and upsert `Opax-Save` via `prepare-commit-msg`; parse committed trailers later. Default session linkage mechanism                                                                                                                                        |
@@ -155,7 +155,7 @@ E0: Foundation
 
 | Feature ID | Feature               | Status  | Description                                                                                                                                                                                 |
 | ---------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FEAT-0023  | Write orchestrator    | planned | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + hygiene metadata → serialize → write to orphan branch. All under .git/opax.lock                       |
+| FEAT-0023  | Write orchestrator    | planned | Accept record + content → scrub → size threshold → CAS or inline → set content_hash + hygiene metadata → serialize → publish via per-ref CAS retry. `.git/opax.lock` remains admin-only |
 | FEAT-0024  | Session archive write | planned | sessions/{shard}/{id}/ with metadata.json + summary.md. Transcript → CAS (always large). Generate ses_ ULID                                                                                 |
 | FEAT-0025  | save write            | planned | saves/{shard}/{id}/ with metadata.json. Link to commit hash + session IDs. Finalize preallocated `sav`_ ID from trailer                                                                     |
 | FEAT-0026  | Commit linkage        | planned | Use the preallocated `Opax-Save` trailer as the default immutable linkage, or write a session-link note when `--no-trailers` is enabled. Save fans out to sessions via many-to-many linkage |
@@ -179,7 +179,7 @@ E0: Foundation
 | FEAT-0031  | SQLite adapter           | planned | Implement StorageBackend against modernc.org/sqlite. FTS5 MATCH, json_extract, transactions                                                                                              |
 | FEAT-0032  | Full rebuild             | planned | Walk all commits on opax/v1, parse metadata.json files, insert into tables, walk notes refs, update materializer_state. The "always rebuildable from git" guarantee                      |
 | FEAT-0033  | Incremental sync         | planned | Compare current HEAD vs stored git_head, walk only new commits, materialize new records                                                                                                  |
-| FEAT-0034  | Dirty flag mechanism     | planned | Write: touch .git/opax/dirty. Read: check flag → incremental sync → remove flag. No daemon needed                                                                                        |
+| FEAT-0034  | Dirty flag mechanism     | planned | Write: touch `.git/opax/dirty` only after successful ref publish; marker is idempotent and not a lock boundary. Read: check flag → incremental sync → remove flag. No daemon needed |
 
 
 ---
@@ -434,4 +434,3 @@ Phase 0 is verified by running the E2E integration test (E12.1):
 5. Simulate Codex session, same repo — `opax search` returns same results
 6. `opax storage stats` — shows record counts and sizes
 7. Verify content containing `AKIA...` test key shows `[REDACTED:aws_key]`
-

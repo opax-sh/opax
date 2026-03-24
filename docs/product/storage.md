@@ -112,7 +112,12 @@ Adding a record uses git plumbing commands (never checkout):
 3. `git commit-tree` — create commit pointing to new tree, with parent as current branch tip
 4. `git update-ref` — update `opax/v1` to point to new commit
 
-Concurrent writes serialized via `.git/opax.lock`.
+Concurrency contract:
+
+- immutable object creation is concurrent
+- branch/notes ref publication uses strict per-ref CAS with retry (including create-if-absent for missing refs)
+- CAS blob writes use create-if-absent by content hash
+- `.git/opax.lock` is for bootstrap/admin coordination, not steady-state record writes
 
 Alternatively, a git library (go-git) performs these operations without shelling out.
 

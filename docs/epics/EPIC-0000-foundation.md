@@ -10,7 +10,7 @@
 
 ## Goal
 
-Types, config, dependencies, and write serialization. Nothing user-visible but every downstream epic (E1–E12) depends on this. After E0, the project compiles, tests pass, and the foundational abstractions are in place for git plumbing, storage, hygiene (scrubbing), and capture work to begin.
+Types, config, dependencies, and administrative coordination primitives. Nothing user-visible but every downstream epic (E1–E12) depends on this. After E0, the project compiles, tests pass, and the foundational abstractions are in place for git plumbing, storage, hygiene (scrubbing), and capture work to begin.
 
 ---
 
@@ -370,7 +370,9 @@ func Validate(cfg *OpaxConfig) error
 
 ### Description
 
-Implement advisory file locking at `.git/opax.lock` for write serialization. This enforces architecture invariant #7: no concurrent writes to the consolidated branch in Phase 0. Every write path (E1.3, E4.1) must acquire this lock.
+Implement advisory file locking at `.git/opax.lock` for repository-wide administrative coordination in Phase 0 (for example branch bootstrap and future compaction/archive mutations that span multiple artifacts).
+
+Steady-state record and notes writes do not take this lock. They rely on per-ref compare-and-swap publication with bounded retry.
 
 ### New File
 
@@ -427,7 +429,7 @@ This handles the case where a previous `opax` process crashed without cleanup.
 
 ### Deferred Cleanup Pattern
 
-The intended usage pattern across the codebase:
+The intended usage pattern for administrative flows:
 
 ```go
 lock, err := lock.Acquire(".git/opax.lock", 5*time.Second)
@@ -496,7 +498,7 @@ These are explicitly out of scope for EPIC-0000. Violating these boundaries is s
 - [x] All four features (FEAT-0001–FEAT-0004) have acceptance criteria met
 - [x] Types align with data-spec.md JSON schemas — field names match exactly
 - [x] Config structure aligns with hygiene.md YAML examples
-- [x] Lock semantics match architecture invariant #7 (write serialization via `.git/opax.lock`)
+- [x] Lock semantics match the narrowed Phase 0 contract (`.git/opax.lock` for admin/bootstrap coordination, not steady-state record writes)
 - [x] No scope creep into E1+ territory (no git ops, no SQLite, no CLI commands)
 - [x] `CGO_ENABLED=0 make build` succeeds
 - [x] `make test` passes

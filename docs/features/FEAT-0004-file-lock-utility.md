@@ -3,13 +3,15 @@
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
 **Status:** Completed
 **Dependencies:** FEAT-0001 (stdlib only, no external deps needed)
-**Dependents:** All downstream write paths (git plumbing writes, write orchestrator) — every write path acquires this lock
+**Dependents:** Bootstrap/admin coordination flows (branch bootstrap, init/refspec/config mutations, future compaction/archive coordination)
 
 ---
 
 ## Problem
 
-Architecture invariant #7 states: "`.git/opax.lock` for all writes to the consolidated branch. No concurrent writes in Phase 0." Every operation that modifies the `opax/v1` orphan branch or CAS must serialize through a single lock to prevent tree corruption.
+Phase 0 lock scope is narrow: `.git/opax.lock` coordinates rare repository-wide administrative mutations that are not naturally retryable per-ref CAS publishes.
+
+Steady-state record writes and notes writes do not take this lock. They use per-ref compare-and-swap with bounded retry.
 
 Git itself uses `.git/index.lock` for similar purposes. Opax needs its own lock at `.git/opax.lock` because Opax operations don't use the git index — they use plumbing commands that bypass the working tree entirely.
 
@@ -202,7 +204,7 @@ When `Acquire` returns `ErrStaleLock`:
 
 ## Usage Pattern
 
-Every write path in the codebase follows this pattern:
+Administrative flows that require repository-wide coordination follow this pattern:
 
 ```go
 func writeRecord(gitDir string, record Record) error {
@@ -288,7 +290,7 @@ The lock package fails closed. Downstream consumers should surface `ErrStaleLock
 
 ### Scope
 
-Implement `internal/lock/` as the single advisory file lock utility for all Phase 0 write serialization. This package remains stdlib-only and does not depend on git, store, CAS, or CLI packages.
+Implement `internal/lock/` as the advisory file lock utility for administrative coordination in Phase 0. This package remains stdlib-only and does not depend on git, store, CAS, or CLI packages.
 
 ### API To Implement
 

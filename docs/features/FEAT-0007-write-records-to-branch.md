@@ -1,7 +1,7 @@
 # FEAT-0007 - Write Records To Branch
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Backlog
+**Status:** Completed
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0006 (Orphan branch management)
 **Dependents:** E4 write orchestrator, E5 rebuild inputs, E8 memory plugin, E9 init/storage stats
 
@@ -121,7 +121,7 @@ Each `RecordFile.Path` is relative to the record root and must satisfy:
 
 - not empty
 - not absolute
-- no `..` segments
+- no `..` segments (including internal segments before normalization)
 - clean normalized slash-separated path
 - no duplicate file paths after cleaning
 
@@ -210,6 +210,7 @@ Record IDs are immutable keys. If a record root already exists at the current ti
 | `TestWriteRecordExtensionPath` | Extension path derivation | Files land under `ext-{name}/{shard}/{id}/` |
 | `TestWriteRecordRejectsAbsolutePath` | Path traversal safety | Validation error |
 | `TestWriteRecordRejectsParentTraversal` | Path traversal safety | Validation error |
+| `TestWriteRecordRejectsInternalParentTraversal` | Internal traversal segment rejection | Validation error for paths like `a/../metadata.json` |
 | `TestWriteRecordConcurrentDistinctIDs` | Optimistic concurrency | Two concurrent writers for distinct IDs both succeed eventually |
 | `TestPublishRefWithRetryRetriesWhenRefCreatedConcurrently` | Missing-ref first-write CAS | Concurrent first writers do not silently overwrite; loser retries |
 | `TestWriteRecordExpectedTipMismatch` | Explicit tip fence | `ErrTipChanged` without hidden retry success |

@@ -848,6 +848,29 @@ func TestWriteRecordRejectsParentTraversal(t *testing.T) {
 	}
 }
 
+func TestWriteRecordRejectsInternalParentTraversal(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	_, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "a/../metadata.json", Content: []byte("{}")},
+		},
+	})
+	if err == nil {
+		t.Fatal("WriteRecord() error = nil, want traversal validation error")
+	}
+	if !strings.Contains(err.Error(), "parent traversal") {
+		t.Fatalf("WriteRecord() error = %v, want parent traversal validation", err)
+	}
+}
+
 func TestWriteRecordExpectedTipMismatch(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)

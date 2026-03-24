@@ -592,6 +592,11 @@ func normalizeRecordFilePath(rawPath string) (string, error) {
 	if pathpkg.IsAbs(rawPath) {
 		return "", fmt.Errorf("git: record file path %q must be relative", rawPath)
 	}
+	for _, segment := range strings.Split(rawPath, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("git: record file path %q contains parent traversal", rawPath)
+		}
+	}
 
 	cleanPath := pathpkg.Clean(rawPath)
 	if cleanPath == "." {

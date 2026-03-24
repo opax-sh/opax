@@ -1,9 +1,9 @@
 # Opax — Product Requirements Document
 
-**Version:** 2.0.0
-**Date:** March 17, 2026
+**Version:** 3.0.0
+**Date:** March 24, 2026
 **Status:** Architecture & Planning
-**Note:** Incorporates architectural decisions from design conversations post-v1
+**Note:** v3 incorporates ideal-state vision work (memory + orchestration as combined value prop, execution-agnostic orchestration, domain generalization thesis)
 **Companion Specs:** Git Data Spec · Hygiene (secret scrubbing) · Compliance Framework · Storage & Scaling
 
 ---
@@ -23,12 +23,12 @@ The rest of this PRD describes the target architecture and phased delivery plan.
 
 ## Vision
 
-Opax is the structured recording layer for agent work, built on git.
+Opax gives AI agents memory and coordination. No servers, no infrastructure. Just git.
 
 ### The problems
 
 1. **Co-ordination** – Product development increasingly involves multiple agents working across platforms, models, and sessions, often over days or weeks. There is no standard way to share state between them. A conversation in Claude about authentication architecture exists only in that session. The Codex session that implements it starts with no knowledge of the discussion, and the Gemini session that writes tests starts from scratch again. Context doesn't flow between tools, sessions don't persist beyond their runtime, and handoffs between agents or platforms are entirely manual. Inter-session coordination (the connective tissue between discrete agent invocations) has no established infrastructure.
-2. **Observability** – There is no structured record of agent activity across a project. Teams have no queryable way to determine which agent wrote what code, what decisions led to a particular implementation, what human review occurred, or how a line of production code traces back to the conversation that produced it. For teams in regulated industries, this is becoming a compliance requirement. The EU AI Act, NIST AI RMF, and an growing array of state-level laws require demonstrable audit trails for AI-assisted development. Current approaches treat compliance evidence as a separate deliverable rather than a natural byproduct of the development process.
+2. **Observability** – There is no structured record of agent activity across a project. Teams have no queryable way to determine which agent wrote what code, what decisions led to a particular implementation, what human review occurred, or how a line of production code traces back to the conversation that produced it. For teams in regulated industries, this is becoming a compliance requirement. The EU AI Act, NIST AI RMF, and a growing array of state-level laws require demonstrable audit trails for AI-assisted development. Current approaches treat compliance evidence as a separate deliverable rather than a natural byproduct of the development process.
 3. **Ownership** – Agent memory, orchestration, evaluation, and observability tools each store data in their own proprietary formats and backends. Context lives in vector databases we don't control, workflow state lives in vendor runtimes, and eval results live in SaaS dashboards. None of it is inspectable with standard tools, portable across providers, or integrated with the development workflow developers already use. The data your agents produce is scattered across services rather than co-located with the code it produced.
 
 How are we going to solve this? Turns out, we already did: thirty years ago, with git.
@@ -39,21 +39,31 @@ Git gives us:
 2. **Observability by default** – Every object is cryptographically linked to its parent. History is append-only and tamper-evident. The full provenance chain of any change is preserved from the moment it enters the repository. These properties make git a natural audit log – not because it was designed for compliance, but because immutable, content-addressed history is exactly what compliance requires.
 3. **Openness and portability –** Git is not owned by any vendor, not locked to any platform, and not going away. It is the one piece of infrastructure present in every software project. Data stored as git objects is inspectable with standard tools, portable across any hosting provider, and readable by anything that speaks the protocol.
 
+### Why memory and orchestration are inseparable
+
+Memory alone means agents remember but work in isolation. Orchestration alone means agents coordinate but start blind every time. Combined, agents coordinate *and* learn from each other's sessions — Agent B picks up where Agent A left off with full context, a review agent sees not just the diff but the reasoning that produced it.
+
+Git already provides the orchestration primitives. Branches are work units. Commits are stage gates. Hooks and push events are stage transitions. PRs are review gates. Merge is work integration. Multiple agents working on a repo is structurally identical to multiple developers working on a repo — a solved problem. Opax makes these primitives accessible for agent work by adding the missing layer: structured memory and context passing between stages.
+
 ### What Opax adds
 
 Opax doesn't replace git. It defines an open specification for how agent data is stored as standard git objects, provides an SDK (Go) that makes reading and writing that data ergonomic, passive session capture that records agent activity after the fact, a CLI for querying context, and an MCP server for web-only platforms. A local SQLite database serves as a materialized view for fast queries. Passive capture — reading agent session files after the fact, inspired by Entire.io's approach — is the primary recording mechanism. Any tool that can read git can read Opax. Any tool that can write git can extend the platform.
+
+The open-source CLI is the foundation. The long-term product is a platform: hosted dashboards for team visibility, managed orchestration across execution environments, cross-repo memory, and governance features for enterprises. The free/paid boundary maps to local/hosted — the CLI works fully offline with zero infrastructure, while the platform adds capabilities that structurally require persistent infrastructure (cross-repo queries, team dashboards, managed workflow dispatch, notifications).
 
 ---
 
 ## What Opax Is
 
-A **data specification** for storing structured agent activity data as git objects, an **SDK** that makes reading and writing that data ergonomic, a **passive capture engine** that records agent sessions automatically, and a **plugin system** that allows extensions to add capabilities like cross-platform memory, workflow sequencing, evaluations, and other tool adapters.
+A **data specification** for storing structured agent activity data as git objects, an **SDK** that makes reading and writing that data ergonomic, a **passive capture engine** that records agent sessions automatically, an **orchestration layer** that uses git's existing workflow primitives (branches, hooks, PRs) to coordinate multi-agent work, and a **plugin system** that allows extensions to add capabilities like cross-platform memory, workflow sequencing, evaluations, and other tool adapters.
 
 ## What Opax Is Not
 
-Opax is not an orchestration engine. It does not compete with LangGraph, Temporal, or Genkit for real-time agent coordination. It is not responsible for how agents do their work, how users review agent output, or how sessions are managed within a single agent platform. It does not run daemons, watchers, or persistent background processes locally. It does not manage containers, cloud sandboxes, or CI pipelines.
+Opax is not an intra-session orchestration engine. It does not compete with LangGraph, Temporal, or Genkit for real-time agent coordination within a single session. It is not responsible for how agents do their work internally, how users review agent output within an IDE, or how tool calls are managed within a single agent platform. It does not run daemons, watchers, or persistent background processes locally.
 
-Opax is the durable state layer that orchestration tools write to, the continuity layer that agents read from, and the audit trail that compliance tools inspect.
+Opax is the memory and coordination layer between agent sessions. It handles inter-session orchestration: defining what work happens in what order, passing context between stages, enforcing review gates, and recording what happened. Intra-session orchestration (how an agent manages its own tool calls and reasoning) remains the agent platform's responsibility.
+
+Opax is also not an execution environment. It does not manage containers, cloud sandboxes, or CI pipelines directly. Execution is pluggable — agents can run in GitHub Actions, local Docker, cloud sandboxes, serverless functions, or bare metal. The orchestrator defines what work happens and in what order; thin execution drivers handle where it runs.
 
 **Strategic framing:** Opax is to GitHub what Datadog is to AWS CloudWatch: a specialized projection layer, not a hosting platform. The moment we start building code viewers, pull request reviews, or template registries, we've accidentally started building GitHub. Resist that pull. Opax renders the data GitHub ignores (notes, orphan branches, trailers), not the data GitHub already handles well.
 
@@ -75,9 +85,9 @@ The core is deliberately thin. It owns data infrastructure; all domain logic liv
 ### First-Party Plugins (open-source, replaceable)
 
 1. **Memory** — Agent session recording and search. Passive capture records sessions automatically. CLI (`opax search`, `opax session`) is the primary query interface for agents with shell access. MCP server provides read-only query access for web-only platforms (Claude web, ChatGPT).
-2. **Workflows** — Simple DAG-based stage sequencing with git-event triggers and human approval gates. YAML workflow format is owned by this plugin, not the core spec. This is a thin reference implementation, not a competing product. Teams that outgrow it should use Temporal or LangGraph with an Opax adapter. Can optionally fire-and-forget launch agents for stages, or just track state as external tools do the work.
+2. **Workflows** — DAG-based stage sequencing with git-event triggers and human approval gates. Workflow definitions live in the repo (`.opax/workflows/`), versioned alongside the code. Git primitives map directly to workflow concepts: branches are work units, commits are stage completions, hooks are transitions, PRs are review gates, merge is delivery. The workflow engine uses these existing primitives rather than reimplementing them — it defines what happens and in what order, then uses git events to advance state. YAML workflow format is owned by this plugin, not the core spec.
 3. **Evals** — A thin note format and CLI for attaching eval scores to commits as git notes. Not an evaluation framework — teams needing serious eval infrastructure use Braintrust or Langfuse with an Opax adapter.
-4. **Executors** — Pluggable backends (local process, Docker, E2B, GitHub Actions) that run workflow stages in sandboxed environments. Used by the workflows plugin to dispatch work.
+4. **Executors** — Pluggable backends that run workflow stages. Each executor is a thin driver implementing a common contract: given a branch, a context bundle (Opax memory), and a task spec, spin up an agent session and signal completion. Execution environments include local Docker, GitHub Actions, cloud sandboxes (Codespaces, E2B), serverless (Lambda, Cloud Run), SSH remote, and bare metal. The orchestrator doesn't care where agents run — it manages the workflow; drivers manage the compute. New execution environments require only a new driver, not changes to the orchestration layer.
 5. **Adapters** — Bridges that normalize third-party tool data (LangGraph, Temporal, GitHub Actions, various agent platforms) into Opax's git format. Positions Opax as the Rosetta Stone for agent data: every tool that writes data in its own format can have an adapter that translates it into the Opax spec. Adapters are the highest-leverage investment after memory. Every adapter expands the ecosystem without building competing products. Design principle: if a first-party plugin feels like its own product, stop and build an adapter instead. Potential Entire.io adapter: consume Entire's save format and normalize into Opax's query surface, giving Entire users cross-tool unification and compliance without switching capture tooling.
 
 ### Clients
@@ -101,16 +111,18 @@ Plugins implement a common `OpaxPlugin` interface that provides: namespace regis
 
 ## Design Principles
 
-- **Git as state –** Opax's defensible position is as a projection/query layer over git. Conflating this with orchestration or hosting risks building a GitHub competitor by accident.
+- **Git as coordination substrate –** Git is the data layer and coordination bus, not just the storage backend. Branches, hooks, PRs, and merge are orchestration primitives that already exist — Opax makes them accessible for agent work. The defensible position is as a memory and coordination layer over git. Conflating this with hosting or building code review UIs risks building a GitHub competitor by accident.
+- **Execution-agnostic –** Opax defines what work happens and in what order. Where agents run is pluggable. The orchestrator dispatches to thin execution drivers (Docker, CI, cloud sandboxes, serverless, etc.). Adding a new execution environment means writing a driver, not changing the orchestration layer.
 - **Fire-and-forget –** No daemon or watcher locally. All state advances reactively on user triggers, git hooks, external webhooks, or cron. Hooks fire asynchronously and return immediately, adding zero perceptible latency to git operations.
-- **Event sourcing –** Git serves as the write-ahead log and distribution mechanism. SQLite serves as the materialized view optimized for queries. The database is always derivable from git. `git clone` + `opax init` always works.
-- **Commit-anchored –** The primary question is "what context produced this commit?" not "what commits did this session produce?" Saves are created on commit. Session data hangs off the save. This produces a natural audit trail — developers and auditors trace backward from code to context.
+- **Event sourcing –** Git serves as the write-ahead log and distribution mechanism. SQLite serves as the materialized query database (not a "cache" — it's the read model in a CQRS architecture), always derivable from git. `git clone` + `opax init` always works.
+- **Commit-anchored –** The primary question is "what context produced this commit?" not "what commits did this session produce?" Saves are created on commit. Session data hangs off the save. This produces a natural audit trail — developers and auditors trace backward from code to context. Sessions and saves are dual-primary entities — neither subordinate to the other. Sessions without saves (research, failed attempts) are first-class citizens.
 - **Passive capture first –** Agents should not need to actively cooperate with Opax. The system reads agent-native storage after the fact. MCP is a complement for platforms without shell access, not the primary integration.
 - **Scrubbing before encryption** – Secrets must never be stored even in encrypted form. The hygiene pipeline order is non-negotiable.
 - **Layered metadata** – A single `Opax-Save` trailer on each commit provides a tamper-proof link to the save. Detailed session/save metadata lives on the Opax branch, while post-commit annotations live in git notes, which are invisible by default and do not modify the commit hash. Teams that need stronger audit guarantees can enable signed commits on Opax data branches, pin archive hashes in trailers, or enforce branch protection rules on Opax refs. Opax provides the tooling for each layer. Teams choose what they need.
 - **Plugin ownership –** The workflows YAML format belongs to the plugin, not the spec. Keeps the core thin and the plugin replaceable. Same principle applies to eval criteria, adapter schemas, and executor configs.
 - **Open spec first –** The git data format is implementable by third-party tools without the Opax SDK. This is the key ecosystem and defensibility lever: network effects come from the spec, not the runtime.
 - **Phased infrastructure –** SQLite locally (zero friction), Postgres only at the web control plane where its strengths (JSONB/GIN indexes, `LISTEN`/`NOTIFY`, `pgvector`, concurrent writes) are warranted.
+- **Domain-agnostic core, developer-focused surface –** The data model and orchestration primitives (work containers, checkpoints, actor sessions, stage transitions) are intentionally not developer-specific. Git is one excellent storage backend for code-centric work. The same abstractions apply to any domain where AI agents do structured work (legal, finance, healthcare). All current marketing, docs, and integrations are developer-focused — generalization is an architectural property, not a current product priority.
 
 ---
 
@@ -124,9 +136,9 @@ No manual handoff documents and no copy-paste. Session history is stored as git 
 
 ### Scenario 2: Agent → Agent (Workflow Sequencing)
 
-Team defines a workflow: implement → review → test → merge, with human gates. Agent A implements on a branch, commits. The post-commit hook fires, Opax evaluates triggers, and transitions the workflow state to "review." Agent B is launched (or a human is notified) for review. On approval, tests run in Docker via an executor plugin. Results are written as git notes. On pass, merge happens (with or without a final human gate).
+Team defines a workflow: implement → review → test → merge, with human gates. The workflow definition lives in `.opax/workflows/` in the repo, versioned with the code. Agent A implements on a feature branch, commits. The commit event triggers the next stage — a review agent is dispatched (via whatever executor is configured: local Docker, a cloud sandbox, CI, etc.) with full Opax context from Agent A's session. On approval, tests run via a test executor. Results are written as git notes. On pass, merge happens (with or without a final human gate).
 
-Opax advances state reactively. The workflow state machine only moves forward when something external happens. No process shepherds the workflow. Git is the state store, hooks are the event mechanism.
+Each stage gets the previous stage's context injected from Opax memory — the review agent sees not just the diff but the reasoning that produced it. The test agent sees the implementation decisions and the review feedback. Context flows through git; the workflow state machine advances on git events. No process shepherds the workflow.
 
 ### Scenario 3: Agent → Human (Audit & Compliance)
 
@@ -140,11 +152,13 @@ This maps directly to EU AI Act Article 12 (record-keeping), Article 14 (human o
 
 ## Competitive Position
 
-No existing tool combines cross-platform agent memory, git-native audit trails, declarative workflow sequencing, and pluggable execution in a single open data format.
+No existing tool combines cross-platform agent memory, git-native audit trails, execution-agnostic orchestration, and pluggable execution in a single open data format.
 
 **Vs. Mem0/Letta/Zep:** These use vector databases or proprietary storage for agent memory. Opax's data is inspectable with standard git commands, portable across hosting platforms, and distributed over git via explicit Opax ref pushes. Cross-platform by design, not locked to one provider.
 
-**Vs. LangGraph/Temporal/Genkit:** These are real-time intra-session orchestration engines. Opax handles inter-session orchestration: the durable state between sessions. They're complementary; Opax's adapter plugins normalize their output into the git data layer.
+**Vs. LangGraph/Temporal/Genkit:** These are real-time intra-session orchestration engines. Opax handles inter-session orchestration: the durable state and context passing between sessions. They're complementary; Opax's adapter plugins normalize their output into the git data layer. Teams that use Temporal for intra-session work can use Opax for the higher-level workflow (which agents run when, with what context, in what order).
+
+**Vs. CI/CD (GitHub Actions, GitLab CI):** Opax integrates with CI/CD as one execution environment, not a replacement. CI/CD is optimized for deterministic build/test/deploy steps. Agent workflows are non-deterministic, iterative, and involve human-in-the-loop judgment. Opax adds the domain-specific primitives: "route based on semantic analysis of output," "escalate if confidence is low," "inject prior session context." CI/CD is one executor driver among many.
 
 **Vs. Act/Dagger:** These run CI pipelines locally. Opax's executor plugins dispatch work to these (and other) backends. Different layer.
 
@@ -152,7 +166,7 @@ No existing tool combines cross-platform agent memory, git-native audit trails, 
 
 **Vs. Entire.io:** Entire is a session recording and observability tool — it captures what agents did. Opax connects what agents know. Entire is write-only: agents cannot read previous sessions back. Opax is read-write: the CLI and MCP server provide a query path that enables agents to start warm with previous context. Entire has no compliance framing, no workflow orchestration, and no open data spec. Opax's passive capture learns from Entire's architecture (single consolidated branch, commit-anchored saves, agent plugin protocol) while adding the coordination, compliance, and adapter ecosystem layers Entire structurally cannot provide.
 
-**Key differentiators:** Git as the data layer (inspectable, portable, distributed). Open specification (ecosystem API, not proprietary format). Compliance-ready by design (cryptographic integrity, immutable history). Provider-agnostic (works across Claude, Codex, ChatGPT, Gemini, OLLAMA, mobile).
+**Key differentiators:** Git as the coordination substrate (not just storage — branches, hooks, PRs are workflow primitives). Open specification (ecosystem API, not proprietary format). Execution-agnostic (agents run anywhere; Opax manages the workflow). Memory + orchestration as inseparable capabilities (context flows between stages). Compliance-ready by design (cryptographic integrity, immutable history). Provider-agnostic (works across Claude, Codex, ChatGPT, Gemini, OLLAMA, mobile).
 
 **Biggest threat:** GitHub Agentic Workflows + GitHub MCP Registry in the next 12 months. Mitigation: ship fast, establish the spec before vendors move. The open format creates switching costs: ecosystem tools built on the format persist even if vendors offer alternatives. Secondary threat: Entire.io adding a read path (MCP server or CLI query). Their save data contains full transcripts — there's no structural barrier to building search. The open spec and adapter ecosystem are the durable moat.
 
@@ -162,25 +176,29 @@ No existing tool combines cross-platform agent memory, git-native audit trails, 
 
 ### Open-Source Core (Apache 2.0)
 
-The SDK, all first-party plugins, the CLI, the data spec, and Studio in local mode are open-source.
+The SDK, all first-party plugins, the CLI, the data spec, and Studio in local mode are open-source. The CLI is the distribution channel — it builds community and adoption. This is the wedge.
 
-### Hosted Tier (Paid)
+### Hosted Platform (Paid)
 
 The free/paid boundary maps onto the local/hosted boundary, which maps onto the no-daemon principle. Every paid feature requires persistent infrastructure that's structurally impossible to deliver locally.
 
 
-| Capability      | Local (Free)              | Hosted (Paid)                           |
-| --------------- | ------------------------- | --------------------------------------- |
-| Data storage    | Git + local SQLite        | Git + hosted Postgres                   |
-| Search & query  | FTS5, single-repo         | Full Postgres FTS, cross-repo           |
-| Web UI          | `opax studio` (temporary) | Always-on dashboard                     |
-| Notifications   | None (no daemon)          | Slack, email, webhooks                  |
-| Cron triggers   | None (no daemon)          | Scheduled workflow dispatch             |
-| Team dashboards | Single-repo               | Cross-repo, cross-team                  |
-| Monitoring      | `opax status`             | Anomaly detection, trend alerts         |
-| Retention       | Limited by git/disk       | Extended hosted storage + archive repos |
-| Access controls | Git repo permissions      | SSO, RBAC, team workspaces              |
+| Capability             | Local (Free)              | Hosted (Paid)                           |
+| ---------------------- | ------------------------- | --------------------------------------- |
+| Data storage           | Git + local SQLite        | Git + hosted Postgres                   |
+| Search & query         | FTS5, single-repo         | Full Postgres FTS, cross-repo           |
+| Web UI                 | `opax studio` (temporary) | Always-on dashboard                     |
+| Orchestration          | Local workflows, manual   | Managed dispatch, live monitoring        |
+| Notifications          | None (no daemon)          | Slack, email, webhooks                  |
+| Cron triggers          | None (no daemon)          | Scheduled workflow dispatch             |
+| Team dashboards        | Single-repo               | Cross-repo, cross-team                  |
+| Monitoring             | `opax status`             | Anomaly detection, trend alerts         |
+| Retention              | Limited by git/disk       | Extended hosted storage + archive repos |
+| Access controls        | Git repo permissions      | SSO, RBAC, team workspaces              |
+| Intelligence (Phase 4) | —                         | Cross-repo patterns, quality scoring    |
 
+
+The conversion funnel: individuals adopt the CLI (free) → teams adopt the dashboard for shared visibility → enterprises adopt governance features for compliance and scale.
 
 The Postgres layer at the hosted tier uses a `StorageBackend` interface so the SDK's public API remains unchanged. The upgrade path from local to hosted is configuration, not migration — the SQLite-backed local mode and the Postgres-backed hosted mode share the same materialization logic.
 
@@ -253,6 +271,27 @@ Third-party integration, full compliance tooling, and community.
 
 **Exit criteria:** Third-party tool reads session archives and writes eval scores as git notes using only the published spec, without importing the SDK. Compliance report generates evidence package for EU AI Act Article 12 from existing Opax data.
 
+### Phase 4: Intelligence Layer
+
+Cross-repo, cross-team memory and insights. This is the moat — nobody else has the data.
+
+**Deliverables:**
+
+- Cross-repo memory: agents on Project A learn from patterns in Project B.
+- Workflow recommendations based on aggregate usage patterns.
+- Quality scoring: automatically assess agent output quality over time.
+- Cost analytics: which workflows burn how many tokens, across which models.
+
+### Phase 5: Ecosystem & Generalization
+
+Platform maturity and market expansion.
+
+**Deliverables:**
+
+- Third-party workflow template marketplace.
+- SDKs in Python, TypeScript (spec-first — these implement the git data spec, not the Go SDK).
+- Non-dev domain exploration: the data model and orchestration primitives are domain-agnostic by design (work containers, checkpoints, actor sessions, stage transitions map beyond git). If demand emerges for contract review, claims processing, or other structured AI workflows, the core platform supports them with new storage drivers and workflow templates. This is not a current priority — it's an architectural property that keeps the option open.
+
 ---
 
 ## Key Decisions Log
@@ -265,13 +304,13 @@ Accumulated architectural decisions from design conversations, in chronological 
 4. **Storage pattern:** Event sourcing / CQRS. Git = WAL + distribution. SQLite = materialized view. Database at `.git/opax/opax.db`, always rebuildable.
 5. **Phased databases:** SQLite locally (Phase 0). Postgres at hosted control plane only (Phase 2). Abstracted behind `StorageBackend` interface.
 6. **Architecture:** Thin core + plugin system. Core owns data infrastructure; all domain logic lives in plugins.
-7. **Orchestration:** Opax handles inter-session orchestration (durable state between sessions). Intra-session orchestration (LangGraph's domain) is out of scope. We call them "workflows".
+7. **Orchestration:** Opax handles inter-session orchestration (durable state and context passing between sessions). Intra-session orchestration (LangGraph's domain) is out of scope. Git primitives (branches, hooks, PRs, merge) are the orchestration substrate — not reimplemented, just made accessible for agent work. Multiple agents on a repo is structurally identical to multiple developers on a repo.
 8. **Plugin naming:** "Workflows" not "orchestration" or "dispatch." The name avoids undermining the positioning.
 9. **No daemon locally.** Fire-and-forget. Hooks fire async. No persistent process. Every feature requiring a persistent process is on the paid hosted tier.
 10. **Trailers by default, notes as fallback.** Trailers are the default session linkage mechanism — immutable, tamper-evident, cryptographically bound to the commit hash. `prepare-commit-msg` preallocates a fresh `sav_` ID and inserts `Opax-Save` before the commit is created; later post-commit flows finalize the save using that ID. Notes are used for post-commit plugin data (test results, review verdicts, eval scores) and as a fallback when trailers are disabled via `--no-trailers`.
 11. **Hygiene pipeline order:** Scrub before any future encrypt. Non-negotiable. Session/save records carry `hygiene` metadata for scrubbing provenance.
 12. **Future encryption:** Spec TBD before ship (e.g. `age`, content-focused encryption to limit git/CAS overhead).
-13. **Execution environments:** Removed from core, reintroduced as executor plugins. The workflows plugin dispatches to them; the core doesn't know or care.
+13. **Execution environments:** Removed from core, reintroduced as executor plugins with a thin driver contract (branch + context bundle + task spec → session + completion signal). Execution is fully pluggable: GitHub Actions, local Docker, cloud sandboxes (Codespaces, E2B), serverless (Lambda, Cloud Run), SSH remote, bare metal. Adding a new environment means writing a driver, not changing the orchestrator. Opax never competes with execution environments — it integrates with all of them.
 14. **Compliance as natural byproduct.** Session archives = Article 12 record-keeping. Workflow gates = Article 14 human oversight. Git integrity = tamper-evidence. Don't bolt on a compliance layer; the data model serves compliance structurally.
 15. **Retention tensions.** PRD compaction (30d individual / 90d summary) conflicts with EU AI Act (system lifetime) and Colorado (3 years). Compliance mode overrides compaction settings. Addressed in *Storage & Scaling Spec* and *Compliance Framework*.
 16. **Competitive positioning.** Opax is the data layer beneath observability platforms (Braintrust, Langfuse), not a direct competitor. Ship the spec, make evals expressive enough for them to consume Opax data. Expand upward only after the spec wins.
@@ -291,6 +330,12 @@ Accumulated architectural decisions from design conversations, in chronological 
 30. **Archive tiers.** Hot (0-30d): same repo, consolidated branch, SQLite. Warm (30-90d): git remote (archive repo), fetch on demand. Cold (90+d): git bundles on object storage, download + fetch from bundle. Hosted: git alternates (shared object pool), Postgres query surface.
 31. **Future access control.** Encryption or other authorization TBD before ship; external CAS/storage boundaries enforce access at deployment time today.
 32. **Competitive position vs Entire.io.** "Entire captures what agents did. Opax connects what agents know." Don't compete on session recording — compete on the read path, unified query surface, compliance, and adapter ecosystem. Learn from their architecture; build what they structurally cannot.
+33. **Memory + orchestration are inseparable.** Memory without orchestration = agents remember but work alone. Orchestration without memory = agents coordinate but start blind. The combined value proposition is agents that coordinate AND learn from each other's sessions. This is the core product thesis.
+34. **Git is a workflow engine, not just a data store.** Branches = work units. Commits = stage gates. Hooks/events = transitions. PRs = review gates. Merge = delivery. Multiple agents on a repo is multiple developers on a repo — a solved problem. The concurrent write concern for agent orchestration is a non-issue: agents work on separate branches and merge through standard git workflows.
+35. **Execution-agnostic orchestration.** The orchestrator defines what happens and in what order. Where agents run is pluggable via thin execution drivers. A single workflow may span multiple execution environments (decomposition locally, implementation in cloud sandboxes, review in CI, human approval in a browser). Opax charges for orchestration, memory, and coordination — not compute. Users pay their own execution costs.
+36. **Domain-agnostic core, developer-focused surface.** The data model and orchestration primitives generalize beyond software development. The abstraction: git repo → work container, branch → work unit, commit → checkpoint, PR → review gate, merge → delivery, agent session → actor session. Any domain with AI agents doing structured work (legal, finance, healthcare admin) could use the same primitives. However: build for agentic development first, architect for generalization. All marketing, community, and integrations are developer-focused. Non-dev verticals are a 2-3 year expansion enabled by the architecture, not a current priority.
+37. **SQLite terminology correction.** SQLite is the "materialized query database" — the read model in a CQRS architecture. Not a "cache." It handles 100% of reads and search. Git is the event log and distribution mechanism. Both terms are accurate and should be used consistently.
+38. **Sessions and saves are dual-primary.** Neither is subordinate to the other. Sessions are the recording unit (what happened in an agent conversation). Saves are the checkpoint unit (anchoring sessions to a point in codebase history). Sessions without saves (research, failed attempts, discussions) are first-class citizens.
 
 ---
 

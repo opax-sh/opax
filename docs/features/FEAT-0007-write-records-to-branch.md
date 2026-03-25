@@ -1,6 +1,7 @@
 # FEAT-0007 - Write Records To Branch
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
+**Status:** Completed
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0006 (Orphan branch management)
 **Dependents:** E4 write orchestrator, E5 rebuild inputs, E8 memory plugin, E9 init/storage stats
 

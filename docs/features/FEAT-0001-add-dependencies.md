@@ -1,6 +1,7 @@
 # FEAT-0001 — Add Dependencies
 
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
+**Status:** Completed
 **Dependencies:** None
 **Dependents:** FEAT-0002, FEAT-0003, FEAT-0004 (all need imports available)
 

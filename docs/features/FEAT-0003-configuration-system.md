@@ -1,6 +1,7 @@
 # FEAT-0003 — Configuration System
 
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
+**Status:** Completed
 **Dependencies:** FEAT-0001 (needs `yaml.v3`), FEAT-0002 (imports `types.ScrubMode`)
 **Dependents:** E3 (Hygiene pipeline reads scrubbing config), E4 (Write Path reads storage config), E7 (Capture reads capture config), E9 (`opax init` generates default config), E11 (Hooks read trailers config)
 

@@ -1,6 +1,7 @@
 package checks_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +12,9 @@ import (
 )
 
 var markdownLinkPattern = regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`)
+var statusPattern = regexp.MustCompile(`(?m)^\*\*Status:\*\*\s*([^\n]+)\s*$`)
+var epicRollupPattern = regexp.MustCompile(`^\|\s*(EPIC-\d{4})\s*\|\s*(Backlog|In Progress|Completed|Cancelled)\s*\|\s*\[[^\]]+\]\((epics/[^)]+)\)\s*\|\s*$`)
+var featureRollupPattern = regexp.MustCompile(`^\|\s*(FEAT-\d{4})\s*\|\s*(EPIC-\d{4})\s*\|\s*(Backlog|In Progress|Completed|Cancelled)\s*\|\s*\[[^\]]+\]\((features/[^)]+)\)\s*\|\s*$`)
 
 var stableReferenceDocs = []string{
 	"product/roadmap.md",
@@ -104,7 +108,7 @@ func TestRoadmapAvoidsCurrentStateDuplication(t *testing.T) {
 	}
 }
 
-func TestEpicAndFeatureDocsOmitMutableStatusFields(t *testing.T) {
+func TestEpicAndFeatureDocsHaveValidStatus(t *testing.T) {
 	root := docsRoot(t)
 	for _, dir := range []string{"epics", "features"} {
 		entries, err := os.ReadDir(filepath.Join(root, dir))
@@ -113,20 +117,149 @@ func TestEpicAndFeatureDocsOmitMutableStatusFields(t *testing.T) {
 		}
 
 		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" || entry.Name() == "_template.md" {
 				continue
 			}
 
 			path := filepath.Join(root, dir, entry.Name())
 			data := mustReadFile(t, path)
-			if strings.Contains(data, "**Status:**") {
-				t.Errorf("%s contains mutable status metadata", filepath.ToSlash(filepath.Join(dir, entry.Name())))
+			status, ok := extractStatus(data)
+			if !ok {
+				t.Errorf("%s is missing required **Status:** field", filepath.ToSlash(filepath.Join(dir, entry.Name())))
+				continue
 			}
-			if strings.Contains(data, "| **Status** |") {
-				t.Errorf("%s contains mutable status table metadata", filepath.ToSlash(filepath.Join(dir, entry.Name())))
+			if !isValidStatus(status) {
+				t.Errorf("%s has invalid status %q", filepath.ToSlash(filepath.Join(dir, entry.Name())), status)
 			}
 		}
 	}
+}
+
+func TestIndexRollupMatchesScopedDocStatuses(t *testing.T) {
+	root := docsRoot(t)
+	indexData := mustReadFile(t, filepath.Join(root, "index.md"))
+
+	epicRollup, featureRollup := parseIndexRollups(t, indexData)
+	if len(epicRollup) == 0 {
+		t.Fatal("docs/index.md epic rollup table not found or empty")
+	}
+	if len(featureRollup) == 0 {
+		t.Fatal("docs/index.md feature rollup table not found or empty")
+	}
+
+	epicDocs := statusByDocID(t, root, "epics", "EPIC")
+	featureDocs := statusByDocID(t, root, "features", "FEAT")
+
+	for id, status := range epicDocs {
+		indexStatus, ok := epicRollup[id]
+		if !ok {
+			t.Errorf("docs/index.md epic rollup missing %s", id)
+			continue
+		}
+		if indexStatus != status {
+			t.Errorf("docs/index.md epic rollup status mismatch for %s: got %q, want %q", id, indexStatus, status)
+		}
+	}
+	for id := range epicRollup {
+		if _, ok := epicDocs[id]; !ok {
+			t.Errorf("docs/index.md epic rollup contains unknown entry %s", id)
+		}
+	}
+
+	for id, status := range featureDocs {
+		indexStatus, ok := featureRollup[id]
+		if !ok {
+			t.Errorf("docs/index.md feature rollup missing %s", id)
+			continue
+		}
+		if indexStatus != status {
+			t.Errorf("docs/index.md feature rollup status mismatch for %s: got %q, want %q", id, indexStatus, status)
+		}
+	}
+	for id := range featureRollup {
+		if _, ok := featureDocs[id]; !ok {
+			t.Errorf("docs/index.md feature rollup contains unknown entry %s", id)
+		}
+	}
+}
+
+func statusByDocID(t *testing.T, root, dir, prefix string) map[string]string {
+	t.Helper()
+
+	entries, err := os.ReadDir(filepath.Join(root, dir))
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+
+	statuses := map[string]string{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" || entry.Name() == "_template.md" {
+			continue
+		}
+		path := filepath.Join(root, dir, entry.Name())
+		data := mustReadFile(t, path)
+		status, ok := extractStatus(data)
+		if !ok {
+			t.Fatalf("%s is missing required **Status:** field", filepath.ToSlash(filepath.Join(dir, entry.Name())))
+		}
+		if !isValidStatus(status) {
+			t.Fatalf("%s has invalid status %q", filepath.ToSlash(filepath.Join(dir, entry.Name())), status)
+		}
+		id, err := docIDFromFilename(entry.Name())
+		if err != nil {
+			t.Fatalf("%s", err)
+		}
+		if !strings.HasPrefix(id, prefix+"-") {
+			t.Fatalf("unexpected %s doc name format: %s", dir, entry.Name())
+		}
+		statuses[id] = status
+	}
+	return statuses
+}
+
+func parseIndexRollups(t *testing.T, data string) (map[string]string, map[string]string) {
+	t.Helper()
+
+	epics := map[string]string{}
+	features := map[string]string{}
+
+	for _, line := range strings.Split(data, "\n") {
+		if match := epicRollupPattern.FindStringSubmatch(strings.TrimSpace(line)); len(match) == 4 {
+			epics[match[1]] = match[2]
+			continue
+		}
+		if match := featureRollupPattern.FindStringSubmatch(strings.TrimSpace(line)); len(match) == 5 {
+			features[match[1]] = match[3]
+		}
+	}
+
+	return epics, features
+}
+
+func extractStatus(data string) (string, bool) {
+	match := statusPattern.FindStringSubmatch(data)
+	if len(match) != 2 {
+		return "", false
+	}
+	return strings.TrimSpace(match[1]), true
+}
+
+func isValidStatus(status string) bool {
+	switch status {
+	case "Backlog", "In Progress", "Completed", "Cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func docIDFromFilename(name string) (string, error) {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	parts := strings.Split(base, "-")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("unexpected doc name format: %s", name)
+	}
+	return parts[0] + "-" + parts[1], nil
 }
 
 func docsRoot(t *testing.T) string {

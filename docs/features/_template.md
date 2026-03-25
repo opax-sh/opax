@@ -1,6 +1,7 @@
 # FEAT-XXXX - <title>
 
 **Epic:** [EPIC-XXXX - <title>](../epics/EPIC-XXXX-<slug>.md)
+**Status:** Backlog
 
 ## Problem
 What this feature must solve and why it matters.

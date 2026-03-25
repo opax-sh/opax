@@ -1,4 +1,4 @@
-.PHONY: build clean test lint
+.PHONY: build clean test lint tools-test
 
 BINARY := opax
 BUILD_DIR := bin
@@ -11,6 +11,10 @@ clean:
 
 test:
 	go test ./...
+	$(MAKE) tools-test
+
+tools-test:
+	cd tools && go test ./...
 
 lint:
 	go vet ./...

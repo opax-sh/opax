@@ -241,6 +241,9 @@ func LoadWithPersonalDir(repoRoot, personalDir string) (*OpaxConfig, error) {
 		}
 		if raw != nil {
 			cfg = mergeRaw(cfg, raw)
+			if err := validateLoadedConfig(path, cfg); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -249,6 +252,13 @@ func LoadWithPersonalDir(repoRoot, personalDir string) (*OpaxConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+func validateLoadedConfig(path string, cfg *OpaxConfig) error {
+	if err := Validate(cfg); err != nil {
+		return fmt.Errorf("config: %s: %w", path, err)
+	}
+	return nil
 }
 
 // readConfigFile reads and decodes a YAML config file.

@@ -177,7 +177,7 @@ type AttrReason string
 
 const (
 	AttrFileOverlap AttrReason = "file_overlap" // Session files_touched overlaps save files_in_commit.
-	AttrTemporal    AttrReason = "temporal"      // Session active on same branch near commit time.
+	AttrTemporal    AttrReason = "temporal"     // Session active on same branch near commit time.
 )
 
 // Valid reports whether r is a defined AttrReason constant.
@@ -199,24 +199,23 @@ type Hygiene struct {
 
 // Session mirrors sessions/{shard}/{id}/metadata.json from data-spec.md §2.2.
 type Session struct {
-	ID           SessionID `json:"id"`
-	Version      int       `json:"version"`
-	Provider     string    `json:"provider"`
-	Model        string    `json:"model,omitempty"`
-	Branch       string    `json:"branch,omitempty"`
-	StartedAt    time.Time `json:"started_at"`
-	// EndedAt is the time the session ended. Note: time.Time zero-value with
-	// omitempty still serializes (as "0001-01-01T00:00:00Z") rather than being
-	// omitted — callers should check IsZero() to detect an unset end time.
-	EndedAt time.Time `json:"ended_at,omitempty"`
-	ExitCode     *int      `json:"exit_code,omitempty"`
-	FilesChanged int       `json:"files_changed,omitempty"`
-	LinesAdded   int       `json:"lines_added,omitempty"`
-	LinesRemoved int       `json:"lines_removed,omitempty"`
-	FilesTouched []string  `json:"files_touched,omitempty"`
-	ContentHash  string    `json:"content_hash,omitempty"`
-	Hygiene      Hygiene   `json:"hygiene"`
-	Tags         []string  `json:"tags,omitempty"`
+	ID        SessionID `json:"id"`
+	Version   int       `json:"version"`
+	Provider  string    `json:"provider"`
+	Model     string    `json:"model,omitempty"`
+	Branch    string    `json:"branch,omitempty"`
+	StartedAt time.Time `json:"started_at"`
+	// EndedAt is optional. Nil means the session has not ended or end time is
+	// unknown, so ended_at is omitted from serialized JSON.
+	EndedAt      *time.Time `json:"ended_at,omitempty"`
+	ExitCode     *int       `json:"exit_code,omitempty"`
+	FilesChanged int        `json:"files_changed,omitempty"`
+	LinesAdded   int        `json:"lines_added,omitempty"`
+	LinesRemoved int        `json:"lines_removed,omitempty"`
+	FilesTouched []string   `json:"files_touched,omitempty"`
+	ContentHash  string     `json:"content_hash,omitempty"`
+	Hygiene      Hygiene    `json:"hygiene"`
+	Tags         []string   `json:"tags,omitempty"`
 }
 
 // Attribution links a session to a save with a reason.

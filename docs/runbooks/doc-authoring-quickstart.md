@@ -1,80 +1,46 @@
-| Field | Value |
-|---|---|
-| **Type** | Runbook |
-| **Status** | Active |
-| **Owner** | product-engineering |
-| **Last synced** | 2026-03-18 |
-
 # Runbook - Doc Authoring Quickstart
 
 ## Purpose
-Provide a fast, repeatable guide for choosing the right doc type and linking planning artifacts correctly before implementation.
 
-## Scope
-This runbook covers authoring and maintaining roadmap, epic, architecture, feature PRD, and ADR docs in the repo.
+Choose the right document type quickly and keep mutable state in one place.
 
 ## Use This Doc Type Guide
-- `docs/product/`: strategy and roadmap.
-- `docs/runbooks/`: repeatable team workflows and operational guides.
-- `docs/epics/`: strategic initiatives that group multiple features.
-- `docs/features/`: implementation-ready feature PRDs with acceptance criteria.
-- `docs/architecture/`: cross-cutting system design docs.
-- `docs/adrs/`: decision records for non-obvious trade-offs.
 
-## Standard Authoring Order
-1. Create or update `docs/product/product-roadmap.md`.
-2. Create or update only the current epic doc in `docs/epics/`.
-3. Add architecture docs in `docs/architecture/` only when the current epic needs a cross-cutting decision documented.
-4. Add feature PRDs in `docs/features/` only for the current epic.
-5. Add ADRs in `docs/adrs/` for meaningful trade-off decisions.
+- `docs/index.md`: current implementation state, active epic and feature pointers, and the full docs inventory.
+- `docs/product/`: strategy, phase planning, and durable product direction.
+- `docs/architecture/`: package boundaries, CLI shape, and structural conventions.
+- `docs/epics/`: shared scope and contracts for a multi-feature initiative.
+- `docs/features/`: scoped design, acceptance criteria, and test plan for one feature.
+- `docs/adrs/`: non-obvious decisions and trade-offs.
 
-## Just-in-Time Planning Rules
-- Keep future epics lightweight in the roadmap until they become current.
-- Avoid drafting full future epic docs unless they are required to unblock the active epic.
-- Avoid drafting future architecture docs and feature PRDs in advance.
-- Prefer changing the roadmap over maintaining speculative downstream docs.
+## Authoring Order
 
-## Template Usage
-- Start each new runbook from `docs/runbooks/_template.md`.
-- Start each new epic from `docs/epics/_template.md`.
-- Start each new feature PRD from `docs/features/_template.md`.
-- Start each new ADR from `docs/adrs/_template.md`.
-
-## Naming Conventions
-- Epic docs use `EPIC-XXXX` IDs and filenames like `docs/epics/EPIC-0001-<slug>.md`.
-- Feature PRDs use `FEAT-XXXX` IDs and filenames like `docs/features/FEAT-0001-<slug>.md`.
-- Feature implementation branches use `feat/FEAT-XXXX-<slug>`.
+1. Update `docs/product/roadmap.md` only when phase sequencing or epic planning changes.
+2. Update the relevant epic doc only when shared scope or contracts change.
+3. Update the relevant feature doc only when feature scope, acceptance criteria, or test plan changes.
+4. Update `docs/index.md` whenever active work or implementation state changes.
+5. Add an ADR when a design decision needs an explicit trade-off record.
 
 ## Linking Rules
-- Each feature PRD links to exactly one epic.
-- Feature PRDs link required architecture docs and ADRs.
-- The current epic links all in-scope feature PRDs.
-- ADRs reference related epics/features and architecture docs.
-- Roadmap reflects current epic status at all times.
 
-## Implementation Gate
-Before coding starts:
-- Feature PRD status is `In Progress`.
-- Feature PRD has acceptance criteria and test plan.
-- Required architecture docs and ADRs are linked.
-- Branch and draft PR are created from the feature PRD context.
-
-## Status Hygiene
-- Update feature status during delivery: `Backlog -> In Progress -> In Review -> Done`.
-- Update epic status as grouped features move forward.
-- Update roadmap when epic status changes.
+- Each feature doc links one epic.
+- Epic and feature docs link any required architecture docs and ADRs.
+- Stable reference docs should point to real files, not placeholder paths.
+- `docs/index.md` lists every file under `docs/`.
 
 ## Verification Checklist
-- [ ] New doc uses the correct template.
-- [ ] Metadata table is complete and current.
-- [ ] Links to related docs are present and valid.
-- [ ] Status fields reflect real project state.
-- [ ] Feature PRD includes acceptance criteria and test plan.
+
+- [ ] The chosen doc type matches the change being made.
+- [ ] Mutable work-state changes are captured only in `docs/index.md`.
+- [ ] Stable reference docs link to real files.
+- [ ] Epic and feature docs describe scope and acceptance criteria without mutable status metadata.
 
 ## References
-- `docs/product/product-roadmap.md`
-- `docs/runbooks/spec-driven-delivery-workflow.md`
-- `docs/runbooks/_template.md`
-- `docs/epics/_template.md`
-- `docs/features/_template.md`
-- `docs/adrs/_template.md`
+
+- [Documentation Index](../index.md)
+- [Product Roadmap](../product/roadmap.md)
+- [Repository Structure](../architecture/repo-structure.md)
+- [Spec-Driven Delivery Workflow](spec-driven-delivery-workflow.md)
+- [Epic Template](../epics/_template.md)
+- [Feature Template](../features/_template.md)
+- [ADR Template](../adrs/_template.md)

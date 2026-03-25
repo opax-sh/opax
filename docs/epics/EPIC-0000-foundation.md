@@ -1,6 +1,5 @@
 # EPIC-0000: Project Foundation
 
-**Status:** Completed
 **Version:** 1.0.0
 **Date:** March 17, 2026
 **Dependencies:** None (root of dependency graph)
@@ -124,7 +123,7 @@ type SessionMetadata struct {
     Model           string          `json:"model,omitempty"`
     Branch          string          `json:"branch,omitempty"`
     StartedAt       time.Time       `json:"started_at"`
-    EndedAt         time.Time       `json:"ended_at,omitempty"`
+    EndedAt         *time.Time      `json:"ended_at,omitempty"`
     DurationSeconds int             `json:"duration_seconds,omitempty"`
     ExitCode        *int            `json:"exit_code,omitempty"`
     Commits         []string        `json:"commits,omitempty"`

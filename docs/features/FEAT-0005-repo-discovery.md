@@ -1,7 +1,6 @@
 # FEAT-0005 - Repo Discovery
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Completed  
 **Dependencies:** EPIC-0000 (config + lock utilities only)
 **Dependents:** FEAT-0006 through FEAT-0011
 
@@ -148,5 +147,4 @@ It does **not** create the lock file, CAS content dir, database file, or any hoo
 | `TestDiscoverRepoGitDirSymlink`                | `.git` symlink handling         | Symlink target is resolved as the git dir     |
 | `TestEnsureOpaxDir`                            | Directory creation              | `CommonGitDir/opax` created once, repeat safe |
 | `TestEnsureOpaxDirExistingFile`                | Invalid existing path           | Clear error when `opax` is not a directory    |
-
 

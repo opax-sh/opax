@@ -470,6 +470,54 @@ func TestStrictUnknownKey(t *testing.T) {
 	}
 }
 
+func TestLoadInvalidYAMLReportsSourcePath(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "hygiene:\n  version: [\n")
+
+	_, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err == nil {
+		t.Fatal("Load() should reject invalid YAML")
+	}
+
+	teamPath := filepath.Join(dir, ".opax", "config.yaml")
+	if !strings.Contains(err.Error(), teamPath) {
+		t.Errorf("error %q should mention team config path %q", err, teamPath)
+	}
+}
+
+func TestLoadInvalidTeamValueReportsSourcePath(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "trailers:\n  prefix: Invalid\n")
+
+	_, err := config.LoadWithPersonalDir(dir, t.TempDir())
+	if err == nil {
+		t.Fatal("Load() should reject invalid team value")
+	}
+
+	teamPath := filepath.Join(dir, ".opax", "config.yaml")
+	if !strings.Contains(err.Error(), teamPath) {
+		t.Errorf("error %q should mention team config path %q", err, teamPath)
+	}
+}
+
+func TestLoadInvalidPersonalValueReportsSourcePath(t *testing.T) {
+	dir := t.TempDir()
+	writeTeamConfig(t, dir, "trailers:\n  prefix: Opax-\n")
+
+	personalDir := t.TempDir()
+	writePersonalConfig(t, personalDir, "trailers:\n  prefix: Invalid\n")
+
+	_, err := config.LoadWithPersonalDir(dir, personalDir)
+	if err == nil {
+		t.Fatal("Load() should reject invalid personal value")
+	}
+
+	personalPath := filepath.Join(personalDir, "config.yaml")
+	if !strings.Contains(err.Error(), personalPath) {
+		t.Errorf("error %q should mention personal config path %q", err, personalPath)
+	}
+}
+
 // --- Edge case tests ---
 
 func TestEmptyConfigFile(t *testing.T) {

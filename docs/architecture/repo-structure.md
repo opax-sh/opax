@@ -1,69 +1,27 @@
 # Opax - Repository Structure and Conventions
 
-**For:** Developers and agents working on the Opax codebase  
-**Related docs:** [Product Overview](../product/overview.md), [Data Spec](../product/data-spec.md), [Roadmap](../product/roadmap.md)
+**Related docs:** [Documentation Index](../index.md), [Product Overview](../product/overview.md), [Product Roadmap](../product/roadmap.md)
 
----
+## Repository Layout
 
-## 1. Current Repository Layout
+The repository is organized around clear package ownership boundaries:
 
-This reflects the current implementation in this repository.
+- `cmd/opax/`: user-facing CLI entrypoint.
+- `internal/types/`: canonical IDs, enums, and record metadata types.
+- `internal/config/`: config defaults, merge semantics, and validation.
+- `internal/lock/`: repository-local coordination for administrative mutations.
+- `internal/git/`: git plumbing for repo discovery, Opax branch lifecycle, and git-backed data operations.
+- `internal/cas/`: content-addressed storage primitives.
+- `internal/store/`: materialized query-store layer.
+- `internal/capture/`: agent-specific capture readers and normalization.
+- `internal/hygiene/`: secret scrubbing and hygiene metadata.
+- `internal/plugin/`: plugin contracts and registration points.
+- `internal/mcp/`: MCP-facing integration surface.
+- `docs/`: product, architecture, epic, feature, ADR, and runbook docs.
 
-```text
-opax/
-|- cmd/
-|  |- opax/
-|  |  |- main.go
-|- internal/
-|  |- capture/
-|  |  |- capture.go
-|  |  |- claude/
-|  |  |  |- claude.go
-|  |  |- codex/
-|  |     |- codex.go
-|  |- cas/
-|  |  |- cas.go
-|  |- config/
-|  |  |- config.go
-|  |  |- config_test.go
-|  |- git/
-|  |  |- git.go
-|  |- hygiene/
-|  |  |- hygiene.go
-|  |- mcp/
-|  |  |- mcp.go
-|  |- plugin/
-|  |  |- plugin.go
-|  |- store/
-|  |  |- store.go
-|  |- types/
-|  |  |- types.go
-|  |  |- types_test.go
-|  |- deps_smoke_test.go
-|- plugins/
-|  |- memory/
-|     |- memory.go
-|- docs/
-|  |- architecture/
-|  |- adrs/
-|  |- epics/
-|  |- features/
-|  |- misc/
-|  |- product/
-|- Makefile
-|- go.mod
-|- go.sum
-```
+## CLI Shape
 
-Notes:
-- The repo currently has `docs/product/*` (not `docs/strategy/*`).
-- Several packages are scaffolds with package docs only; implementation is tracked in product/epic/feature docs.
-
----
-
-## 2. Current CLI Surface
-
-Current command tree in `cmd/opax/main.go`:
+The stable user-facing command surface is:
 
 ```text
 opax
@@ -77,59 +35,21 @@ opax
 |- doctor
 ```
 
-Current behavior:
-- `opax version` is implemented.
-- `init`, `search`, `db rebuild`, `session list/get`, `storage stats`, and `doctor` are currently command stubs.
+This document defines the shape of the interface and package boundaries.
+Current implementation state for that surface lives in [docs/index.md](../index.md).
 
----
+## Documentation Contract
 
-## 3. Package Status (Current)
+- `docs/index.md` is the only authoritative current-state document.
+- `docs/product/` captures strategy and phase planning.
+- `docs/architecture/` captures durable repository conventions.
+- `docs/epics/`, `docs/features/`, and `docs/adrs/` capture scoped design records.
 
-Implemented foundations:
-- `internal/types`: canonical ID/types/enums and tests.
-- `internal/config`: config defaults/load/merge/validate and tests.
-- `internal/deps_smoke_test.go`: dependency smoke checks.
-
-Scaffolded (package exists, major behavior still pending):
-- `internal/git`
-- `internal/store`
-- `internal/cas`
-- `internal/capture` (including `claude` and `codex`)
-- `internal/hygiene`
-- `internal/mcp`
-- `internal/plugin`
-- `plugins/memory`
-
-Planned (not yet present, Phase 1+):
-- `internal/orchestrate` — workflow engine: DAG parsing, state machine, git-event trigger evaluation, stage dispatch
-- `internal/drivers` — executor driver interface and implementations (local process, Docker, CI, cloud sandboxes)
-- `.opax/workflows/` — user-facing workflow definition directory (YAML, versioned in repo alongside code)
-
----
-
-## 4. Conventions
-
-- Use `internal/` for all non-entrypoint Go code.
-- Keep package boundaries explicit (`types`, `config`, `git`, `store`, etc.).
-- Prefer table-driven tests and stdlib `testing`.
-- Keep docs explicit about status:
-  - `implemented` means code path works today.
-  - `scaffolded` means package/command exists but behavior is not complete.
-  - `planned` means design target, not present implementation.
-
----
-
-## 5. Build and Verification
+## Build and Verification
 
 ```bash
 make build
-make test
-make lint
-make clean
-```
-
-Current test command used in this repo:
-
-```bash
 go test ./...
+cd tools && go test ./...
+go vet ./...
 ```

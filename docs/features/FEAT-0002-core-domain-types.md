@@ -1,7 +1,6 @@
 # FEAT-0002 — Core Domain Types
 
 **Epic:** [EPIC-0000 — Project Foundation](../epics/EPIC-0000-foundation.md)
-**Status:** Completed
 **Dependencies:** FEAT-0001 (needs `oklog/ulid`)
 **Dependents:** E1 (Git Plumbing), E2 (CAS), E3 (Hygiene Pipeline), E4 (Write Path), E5 (SQLite), E7 (Capture), E8 (Memory Plugin) — virtually everything imports `internal/types`
 
@@ -179,7 +178,7 @@ type Session struct {
     Model           string    `json:"model,omitempty"`
     Branch          string    `json:"branch,omitempty"`
     StartedAt       time.Time `json:"started_at"`
-    EndedAt         time.Time `json:"ended_at,omitempty"`
+    EndedAt         *time.Time `json:"ended_at,omitempty"`
     ExitCode        *int      `json:"exit_code,omitempty"`
     FilesChanged    int       `json:"files_changed,omitempty"`
     LinesAdded      int       `json:"lines_added,omitempty"`
@@ -911,7 +910,7 @@ git commit -m "feat(types): add ScrubMode, AttrReason enums"
 - Modify: `internal/types/types.go` (append Hygiene, Session, Attribution, Save, Note)
 - Modify: `internal/types/types_test.go` (append JSON tests)
 
-> **`omitempty` on `time.Time` note:** Go's `encoding/json` does NOT omit zero-value structs for `omitempty` — only primitives, pointers, slices, maps, and strings. `EndedAt time.Time` with `omitempty` will serialize as `"0001-01-01T00:00:00Z"` when unset, not be omitted. The spec includes this tag; implement exactly as written. This is a known limitation and does not affect any acceptance criteria.
+> **Optional `ended_at` note:** `EndedAt` must be represented as `*time.Time` so an unset value is omitted from serialized JSON. A non-nil value still serializes as RFC3339 time via Go's standard `time.Time` marshaling.
 
 - [ ] **Step 5.1: Write failing tests for structs and JSON**
 
@@ -1103,7 +1102,7 @@ type Session struct {
 	Model        string    `json:"model,omitempty"`
 	Branch       string    `json:"branch,omitempty"`
 	StartedAt    time.Time `json:"started_at"`
-	EndedAt      time.Time `json:"ended_at,omitempty"`
+	EndedAt      *time.Time `json:"ended_at,omitempty"`
 	ExitCode     *int      `json:"exit_code,omitempty"`
 	FilesChanged int       `json:"files_changed,omitempty"`
 	LinesAdded   int       `json:"lines_added,omitempty"`

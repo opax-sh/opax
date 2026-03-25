@@ -1,7 +1,6 @@
 # FEAT-0008 - Read Records From Branch
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Backlog
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0006 (Orphan branch management)
 **Dependents:** E5 rebuild/sync, E9 doctor/init diagnostics, debug tooling
 

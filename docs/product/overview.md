@@ -2,10 +2,6 @@
 
 **Version:** 3.0.0
 **Date:** March 23, 2026
-**Status:** Architecture & Planning
-
----
-
 ## Vision
 
 Opax is the structured recording and coordination layer for agent work, built on git.
@@ -122,10 +118,11 @@ This maps to EU AI Act Article 12 (record-keeping), Article 14 (human oversight 
 
 | Document              | Location                              | Scope                                                                |
 | --------------------- | ------------------------------------- | -------------------------------------------------------------------- |
+| Documentation Index   | `docs/index.md`                       | Authoritative current repo state and full docs inventory             |
 | Roadmap               | `docs/product/roadmap.md`             | Phased delivery plan, epics, exit criteria                           |
 | Git Data Spec         | `docs/product/data-spec.md`           | Namespace conventions, schemas, SQLite materialization                |
-| Hygiene Spec          | `docs/product/hygiene-spec.md`        | Secret scrubbing pipeline, config, metadata                          |
-| Compliance Framework  | `docs/product/compliance-framework.md`| EU AI Act, NIST, ISO 42001 mapping, retention                        |
-| Storage & Scaling     | `docs/product/storage-spec.md`        | Two-tier storage, archive tiers, StorageBackend interface, compaction |
-| Architecture Decisions| `docs/adrs/`                          | Individual ADRs for non-obvious architectural choices                |
+| Hygiene Spec          | `docs/product/hygiene.md`             | Secret scrubbing pipeline, config, metadata                          |
+| Compliance Framework  | `docs/product/compliance.md`          | EU AI Act, NIST, ISO 42001 mapping, retention                        |
+| Storage & Scaling     | `docs/product/storage.md`             | Two-tier storage, archive tiers, StorageBackend interface, compaction |
+| Architecture Decisions| `docs/index.md#adrs`                  | ADR inventory and links                                              |
 | Repo Structure        | `docs/architecture/repo-structure.md` | Package layout, conventions, build commands                          |

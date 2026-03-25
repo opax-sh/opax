@@ -170,15 +170,15 @@ func TestPrefixRegistryValidation(t *testing.T) {
 		prefix  string
 		wantErr bool
 	}{
-		{"wrk_", false},           // valid 4-char
-		{"ab_", false},            // valid 3-char
-		{"abcd_", false},          // valid 5-char
-		{"no_underscore", true},   // no trailing _
-		{"AB_", true},             // uppercase
-		{"toolong_", true},        // >5 chars
-		{"x", true},               // too short (<3)
-		{"x_", true},              // too short (2 chars)
-		{"", true},                // empty
+		{"wrk_", false},         // valid 4-char
+		{"ab_", false},          // valid 3-char
+		{"abcd_", false},        // valid 5-char
+		{"no_underscore", true}, // no trailing _
+		{"AB_", true},           // uppercase
+		{"toolong_", true},      // >5 chars
+		{"x", true},             // too short (<3)
+		{"x_", true},            // too short (2 chars)
+		{"", true},              // empty
 	}
 	for _, tt := range tests {
 		t.Run(tt.prefix, func(t *testing.T) {
@@ -245,8 +245,8 @@ func TestSessionJSON(t *testing.T) {
 		LinesRemoved: 5,
 		FilesTouched: []string{"main.go", "types.go"},
 		ContentHash:  "deadbeef",
-		Hygiene: types.Hygiene{Scrubbed: false},
-		Tags: []string{"feature"},
+		Hygiene:      types.Hygiene{Scrubbed: false},
+		Tags:         []string{"feature"},
 	}
 
 	data, err := json.Marshal(original)
@@ -336,10 +336,7 @@ func TestSaveJSON(t *testing.T) {
 	}
 }
 
-func TestSessionEndedAtZeroValue(t *testing.T) {
-	// time.Time with omitempty is NOT omitted when zero — it serializes as
-	// "0001-01-01T00:00:00Z". This is a known limitation of encoding/json.
-	// Callers must use EndedAt.IsZero() to detect an unset end time.
+func TestSessionEndedAtOmittedWhenUnset(t *testing.T) {
 	s := types.Session{
 		ID:        types.NewSessionID(),
 		Version:   1,
@@ -351,9 +348,27 @@ func TestSessionEndedAtZeroValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	// ended_at IS present (zero time.Time not omitted by omitempty)
-	if !strings.Contains(string(data), `"ended_at"`) {
-		t.Errorf("expected ended_at in JSON (zero time.Time not omitted), got: %s", data)
+	if strings.Contains(string(data), `"ended_at"`) {
+		t.Errorf("expected ended_at to be omitted when unset, got: %s", data)
+	}
+}
+
+func TestSessionEndedAtIncludedWhenSet(t *testing.T) {
+	endedAt := time.Now().UTC().Truncate(time.Second)
+	s := types.Session{
+		ID:        types.NewSessionID(),
+		Version:   1,
+		Provider:  "x",
+		StartedAt: endedAt.Add(-time.Minute),
+		EndedAt:   &endedAt,
+		Hygiene:   types.Hygiene{},
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"ended_at":"`) {
+		t.Errorf("expected ended_at in JSON when set, got: %s", data)
 	}
 }
 

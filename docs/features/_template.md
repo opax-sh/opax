@@ -1,20 +1,9 @@
-| Field | Value |
-|---|---|
-| **Type** | PRD |
-| **Feature ID** | FEAT-XXXX |
-| **Status** | Backlog |
-| **Epic** | EPIC-XXXX |
-| **Owner** | team-or-owner |
-| **Domains** | DomainA, DomainB |
-| **Last synced** | YYYY-MM-DD |
-
 # FEAT-XXXX - <title>
 
-## Goal
-What this feature delivers and why.
+**Epic:** [EPIC-XXXX - <title>](../epics/EPIC-XXXX-<slug>.md)
 
-## Background and Context
-Relevant product and user context.
+## Problem
+What this feature must solve and why it matters.
 
 ## Scope
 
@@ -24,31 +13,16 @@ Relevant product and user context.
 ### Out of scope
 - Item
 
-## Requirements
-1. Requirement
-2. Requirement
-
-## Architecture and Technical Notes
-- Link required architecture docs
-- Link required ADRs
-- Key implementation notes
+## Contracts
+- Linked architecture docs
+- Linked ADRs
+- Key implementation constraints
 
 ## Acceptance Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] Criterion 3
+- [ ] Criterion
 
 ## Test Plan
-- Unit tests
-- Integration tests
-- Manual verification
+- Unit, integration, or manual verification steps
 
-## Rollout and Observability
-- Release plan
-- Metrics and logging
-
-## Risks and Mitigations
-- Risk and mitigation
-
-## Open Questions
-- Question
+## Notes
+- Rollout or risk notes as needed

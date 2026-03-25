@@ -9,7 +9,7 @@ Act as my high-level advisor. Challenge my thinking, question my assumptions, an
 
 ```bash
 make build              # Build → bin/opax
-make test               # go test ./...
+make test               # go test ./... && tools checks
 make lint               # go vet ./...
 make clean              # rm -rf bin/
 go test ./internal/cas/ # Single-package test

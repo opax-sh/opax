@@ -1,6 +1,5 @@
 # EPIC-0001: Git Plumbing Layer
 
-**Status:** In Progress  
 **Version:** 1.0.0-draft
 **Date:** March 18, 2026
 **Dependencies:** EPIC-0000 (types, config, admin lock utility)
@@ -11,10 +10,6 @@
 ## Goal
 
 Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/opax/notes/`*, support `Opax-Save` trailer parsing and insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
-
-This epic is authoritative for EPIC-0001 if `docs/product/roadmap.md`, `docs/product/overview.md`, or `docs/product/data-spec.md` drift. The roadmap remains the execution index; this document resolves Phase 0 implementation details.
-
----
 
 ## Why This Epic Matters
 

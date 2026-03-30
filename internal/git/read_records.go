@@ -1,7 +1,6 @@
 package git
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	pathpkg "path"
@@ -213,20 +212,13 @@ func walkCollectionRecords(
 }
 
 func resolveReadSnapshot(ctx *RepoContext) (*ggit.Repository, plumbing.Hash, *object.Tree, error) {
-	if err := ValidateOpaxBranch(ctx); err != nil {
-		return nil, plumbing.ZeroHash, nil, err
-	}
-
 	repo, err := openRepoFromContext(ctx)
 	if err != nil {
 		return nil, plumbing.ZeroHash, nil, err
 	}
 
-	branchTip, tipCommit, err := resolveOpaxBranchTip(repo)
+	branchTip, tipCommit, err := resolveValidatedOpaxBranchTip(repo)
 	if err != nil {
-		if errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return nil, plumbing.ZeroHash, nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, err)
-		}
 		return nil, plumbing.ZeroHash, nil, err
 	}
 

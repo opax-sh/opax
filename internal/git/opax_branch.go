@@ -252,14 +252,27 @@ func createOpaxBranch(repo *ggit.Repository) (plumbing.Hash, error) {
 }
 
 func validateOpaxBranch(repo *ggit.Repository) error {
+	_, _, err := resolveValidatedOpaxBranchTip(repo)
+	return err
+}
+
+func resolveValidatedOpaxBranchTip(repo *ggit.Repository) (plumbing.Hash, *object.Commit, error) {
 	tipHash, tipCommit, err := resolveOpaxBranchTip(repo)
 	if err != nil {
 		if errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, err)
+			return plumbing.ZeroHash, nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, err)
 		}
-		return err
+		return plumbing.ZeroHash, nil, err
 	}
 
+	if err := validateResolvedOpaxBranchTip(tipHash, tipCommit); err != nil {
+		return plumbing.ZeroHash, nil, err
+	}
+
+	return tipHash, tipCommit, nil
+}
+
+func validateResolvedOpaxBranchTip(tipHash plumbing.Hash, tipCommit *object.Commit) error {
 	tipSentinel, err := readOpaxSentinel(tipCommit)
 	if err != nil {
 		return fmt.Errorf("git: validate opax branch tip %s: %w", tipHash, err)

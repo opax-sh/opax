@@ -10,6 +10,7 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 
 	ggit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	internalgit "github.com/opax-sh/opax/internal/git"
 	"github.com/opax-sh/opax/internal/lock"
@@ -1142,6 +1144,366 @@ func TestWriteRecordNoWorkingTreeChanges(t *testing.T) {
 	}
 }
 
+func TestReadRecordSession(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	writeResult, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"id":"` + recordID + `"}`)},
+			{Path: "notes/summary.md", Content: []byte("hello session\n")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	got, err := internalgit.ReadRecord(ctx, "sessions", recordID)
+	if err != nil {
+		t.Fatalf("ReadRecord() error = %v", err)
+	}
+	if got.BranchTip != writeResult.BranchTip {
+		t.Fatalf("ReadRecord().BranchTip = %s, want %s", got.BranchTip, writeResult.BranchTip)
+	}
+	if got.RecordRoot != writeResult.RecordRoot {
+		t.Fatalf("ReadRecord().RecordRoot = %q, want %q", got.RecordRoot, writeResult.RecordRoot)
+	}
+	if len(got.Files) != 2 {
+		t.Fatalf("ReadRecord().Files size = %d, want 2", len(got.Files))
+	}
+	if content := string(got.Files["metadata.json"]); content != `{"id":"`+recordID+`"}` {
+		t.Fatalf("metadata.json content = %q", content)
+	}
+	if content := string(got.Files["notes/summary.md"]); content != "hello session\n" {
+		t.Fatalf("notes/summary.md content = %q", content)
+	}
+}
+
+func TestReadRecordSave(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSaveID().String()
+	wantContent := `{"save":"` + recordID + `"}`
+	if _, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "saves",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(wantContent)},
+		},
+	}); err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	got, err := internalgit.ReadRecord(ctx, "saves", recordID)
+	if err != nil {
+		t.Fatalf("ReadRecord() error = %v", err)
+	}
+	if got.RecordRoot != expectedRecordRoot("saves", recordID) {
+		t.Fatalf("ReadRecord().RecordRoot = %q, want %q", got.RecordRoot, expectedRecordRoot("saves", recordID))
+	}
+	if content := string(got.Files["metadata.json"]); content != wantContent {
+		t.Fatalf("metadata.json content = %q", content)
+	}
+}
+
+func TestReadRecordExtension(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	suffix := strings.TrimPrefix(types.NewSessionID().String(), "ses_")
+	recordID := "wrk_" + suffix
+	wantContent := `{"workflow":"` + recordID + `"}`
+	if _, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "ext-workflows",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(wantContent)},
+		},
+	}); err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	got, err := internalgit.ReadRecord(ctx, "ext-workflows", recordID)
+	if err != nil {
+		t.Fatalf("ReadRecord() error = %v", err)
+	}
+	if got.RecordRoot != expectedRecordRoot("ext-workflows", recordID) {
+		t.Fatalf("ReadRecord().RecordRoot = %q, want %q", got.RecordRoot, expectedRecordRoot("ext-workflows", recordID))
+	}
+	if content := string(got.Files["metadata.json"]); content != wantContent {
+		t.Fatalf("metadata.json content = %q", content)
+	}
+}
+
+func TestReadRecordNotFound(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	_, err := internalgit.ReadRecord(ctx, "sessions", types.NewSessionID().String())
+	if !errors.Is(err, internalgit.ErrRecordNotFound) {
+		t.Fatalf("ReadRecord() error = %v, want ErrRecordNotFound", err)
+	}
+}
+
+func TestReadFileAtPath(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	writeResult, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"ok":true}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	content, err := internalgit.ReadFileAtPath(ctx, pathpkg.Join(writeResult.RecordRoot, "metadata.json"))
+	if err != nil {
+		t.Fatalf("ReadFileAtPath() error = %v", err)
+	}
+	if string(content) != `{"ok":true}` {
+		t.Fatalf("ReadFileAtPath() content = %q", content)
+	}
+}
+
+func TestReadFileAtPathDirectory(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	recordID := types.NewSessionID().String()
+	writeResult, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   recordID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"ok":true}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	_, err = internalgit.ReadFileAtPath(ctx, writeResult.RecordRoot)
+	if !errors.Is(err, internalgit.ErrMalformedTree) {
+		t.Fatalf("ReadFileAtPath() error = %v, want ErrMalformedTree", err)
+	}
+}
+
+func TestReadFileAtPathNotFound(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	_, err := internalgit.ReadFileAtPath(ctx, "sessions/aa/missing.json")
+	if !errors.Is(err, internalgit.ErrFileNotFound) {
+		t.Fatalf("ReadFileAtPath() error = %v, want ErrFileNotFound", err)
+	}
+}
+
+func TestReadRecordMalformedTree(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	injectMalformedSessionsCollection(t, repoRoot)
+
+	_, err := internalgit.ReadRecord(ctx, "sessions", types.NewSessionID().String())
+	if !errors.Is(err, internalgit.ErrMalformedTree) {
+		t.Fatalf("ReadRecord() error = %v, want ErrMalformedTree", err)
+	}
+}
+
+func TestReadRecordSharedShardMiss(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	existingID := types.NewSessionID().String()
+	if _, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   existingID,
+		Files: []internalgit.RecordFile{
+			{Path: "metadata.json", Content: []byte(`{"ok":true}`)},
+		},
+	}); err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+
+	rootParts := strings.Split(expectedRecordRoot("sessions", existingID), "/")
+	if len(rootParts) != 3 {
+		t.Fatalf("expectedRecordRoot() = %q, want 3 segments", expectedRecordRoot("sessions", existingID))
+	}
+	missingID := findSessionIDInShard(t, rootParts[1], existingID)
+
+	_, err := internalgit.ReadRecord(ctx, "sessions", missingID)
+	if !errors.Is(err, internalgit.ErrRecordNotFound) {
+		t.Fatalf("ReadRecord() error = %v, want ErrRecordNotFound", err)
+	}
+}
+
+func TestWalkRecordsSessionsSavesExtensions(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	sessionID := types.NewSessionID().String()
+	if _, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "sessions",
+		RecordID:   sessionID,
+		Files:      []internalgit.RecordFile{{Path: "metadata.json", Content: []byte(`{"ok":true}`)}},
+	}); err != nil {
+		t.Fatalf("WriteRecord(sessions) error = %v", err)
+	}
+
+	saveID := types.NewSaveID().String()
+	if _, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "saves",
+		RecordID:   saveID,
+		Files:      []internalgit.RecordFile{{Path: "metadata.json", Content: []byte(`{"ok":true}`)}},
+	}); err != nil {
+		t.Fatalf("WriteRecord(saves) error = %v", err)
+	}
+
+	extensionSuffix := strings.TrimPrefix(types.NewSessionID().String(), "ses_")
+	extensionID := "wrk_" + extensionSuffix
+	if _, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection: "ext-workflows",
+		RecordID:   extensionID,
+		Files:      []internalgit.RecordFile{{Path: "metadata.json", Content: []byte(`{"ok":true}`)}},
+	}); err != nil {
+		t.Fatalf("WriteRecord(ext-workflows) error = %v", err)
+	}
+
+	tip, err := internalgit.GetOpaxBranchTip(ctx)
+	if err != nil {
+		t.Fatalf("GetOpaxBranchTip() error = %v", err)
+	}
+
+	locators := make(map[string]internalgit.RecordLocator)
+	err = internalgit.WalkRecords(ctx, func(locator internalgit.RecordLocator) error {
+		locators[locator.RecordRoot] = locator
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkRecords() error = %v", err)
+	}
+	if len(locators) != 3 {
+		t.Fatalf("WalkRecords() emitted %d records, want 3", len(locators))
+	}
+
+	expected := map[string]struct {
+		collection string
+		recordID   string
+	}{
+		expectedRecordRoot("sessions", sessionID):        {collection: "sessions", recordID: sessionID},
+		expectedRecordRoot("saves", saveID):              {collection: "saves", recordID: saveID},
+		expectedRecordRoot("ext-workflows", extensionID): {collection: "ext-workflows", recordID: extensionID},
+	}
+	for recordRoot, want := range expected {
+		locator, found := locators[recordRoot]
+		if !found {
+			t.Fatalf("WalkRecords() missing record root %q", recordRoot)
+		}
+		if locator.Collection != want.collection || locator.RecordID != want.recordID {
+			t.Fatalf(
+				"WalkRecords() locator at %q = (%q, %q), want (%q, %q)",
+				recordRoot,
+				locator.Collection,
+				locator.RecordID,
+				want.collection,
+				want.recordID,
+			)
+		}
+		if locator.BranchTip != tip {
+			t.Fatalf("WalkRecords() locator branch tip = %s, want %s", locator.BranchTip, tip)
+		}
+	}
+}
+
+func TestWalkRecordsSkipsMeta(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	count := 0
+	err := internalgit.WalkRecords(ctx, func(locator internalgit.RecordLocator) error {
+		count++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkRecords() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("WalkRecords() count = %d, want 0", count)
+	}
+}
+
+func TestReadErrorsAreTyped(t *testing.T) {
+	branchMissingRoot := initGitRepo(t)
+	branchMissingCtx := mustDiscoverRepo(t, branchMissingRoot)
+	_, err := internalgit.ReadRecord(branchMissingCtx, "sessions", types.NewSessionID().String())
+	if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+		t.Fatalf("ReadRecord() branch-missing error = %v, want plumbing.ErrReferenceNotFound", err)
+	}
+
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	if _, err := internalgit.EnsureOpaxBranch(ctx); err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	_, err = internalgit.ReadRecord(ctx, "sessions", types.NewSessionID().String())
+	if !errors.Is(err, internalgit.ErrRecordNotFound) {
+		t.Fatalf("ReadRecord() not-found error = %v, want ErrRecordNotFound", err)
+	}
+
+	_, err = internalgit.ReadFileAtPath(ctx, "sessions/aa/missing.json")
+	if !errors.Is(err, internalgit.ErrFileNotFound) {
+		t.Fatalf("ReadFileAtPath() error = %v, want ErrFileNotFound", err)
+	}
+
+	injectMalformedSessionsCollection(t, repoRoot)
+	_, err = internalgit.ReadRecord(ctx, "sessions", types.NewSessionID().String())
+	if !errors.Is(err, internalgit.ErrMalformedTree) {
+		t.Fatalf("ReadRecord() malformed error = %v, want ErrMalformedTree", err)
+	}
+}
+
 func assertRepoContext(t *testing.T, ctx *internalgit.RepoContext, repoRoot, gitDir, commonGitDir string, linked bool) {
 	t.Helper()
 
@@ -1357,4 +1719,123 @@ func writeBlobObject(t *testing.T, repo *ggit.Repository, data []byte) plumbing.
 		t.Fatalf("SetEncodedObject() error = %v", err)
 	}
 	return hash
+}
+
+func writeTreeObject(t *testing.T, repo *ggit.Repository, entries []object.TreeEntry) plumbing.Hash {
+	t.Helper()
+
+	sorted := append([]object.TreeEntry(nil), entries...)
+	sort.Sort(object.TreeEntrySorter(sorted))
+
+	obj := repo.Storer.NewEncodedObject()
+	if err := (&object.Tree{Entries: sorted}).Encode(obj); err != nil {
+		t.Fatalf("Tree.Encode() error = %v", err)
+	}
+
+	hash, err := repo.Storer.SetEncodedObject(obj)
+	if err != nil {
+		t.Fatalf("SetEncodedObject(tree) error = %v", err)
+	}
+	return hash
+}
+
+func writeCommitObject(t *testing.T, repo *ggit.Repository, treeHash, parentHash plumbing.Hash, message string) plumbing.Hash {
+	t.Helper()
+
+	now := time.Now().UTC()
+	commit := &object.Commit{
+		Author: object.Signature{
+			Name:  "Opax",
+			Email: "opax@local",
+			When:  now,
+		},
+		Committer: object.Signature{
+			Name:  "Opax",
+			Email: "opax@local",
+			When:  now,
+		},
+		Message:      message,
+		TreeHash:     treeHash,
+		ParentHashes: []plumbing.Hash{parentHash},
+	}
+
+	obj := repo.Storer.NewEncodedObject()
+	if err := commit.Encode(obj); err != nil {
+		t.Fatalf("Commit.Encode() error = %v", err)
+	}
+
+	hash, err := repo.Storer.SetEncodedObject(obj)
+	if err != nil {
+		t.Fatalf("SetEncodedObject(commit) error = %v", err)
+	}
+	return hash
+}
+
+func injectMalformedSessionsCollection(t *testing.T, repoRoot string) {
+	t.Helper()
+
+	repo := mustOpenRepo(t, repoRoot)
+	ref, err := repo.Reference(plumbing.ReferenceName(opaxBranchRef), true)
+	if err != nil {
+		t.Fatalf("Reference(%q) error = %v", opaxBranchRef, err)
+	}
+
+	commit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		t.Fatalf("CommitObject(%s) error = %v", ref.Hash(), err)
+	}
+	rootTree, err := commit.Tree()
+	if err != nil {
+		t.Fatalf("Tree(%s) error = %v", commit.Hash, err)
+	}
+
+	entries := append([]object.TreeEntry(nil), rootTree.Entries...)
+	badHash := writeBlobObject(t, repo, []byte("malformed sessions collection"))
+	replaced := false
+	for i := range entries {
+		if entries[i].Name == "sessions" {
+			entries[i] = object.TreeEntry{
+				Name: "sessions",
+				Mode: filemode.Regular,
+				Hash: badHash,
+			}
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		entries = append(entries, object.TreeEntry{
+			Name: "sessions",
+			Mode: filemode.Regular,
+			Hash: badHash,
+		})
+	}
+
+	treeHash := writeTreeObject(t, repo, entries)
+	commitHash := writeCommitObject(t, repo, treeHash, ref.Hash(), "opax: malformed sessions collection")
+	newRef := plumbing.NewHashReference(plumbing.ReferenceName(opaxBranchRef), commitHash)
+	if err := repo.Storer.CheckAndSetReference(newRef, ref); err != nil {
+		t.Fatalf("CheckAndSetReference() error = %v", err)
+	}
+}
+
+func findSessionIDInShard(t *testing.T, shard, exclude string) string {
+	t.Helper()
+
+	for i := 0; i < 5000; i++ {
+		candidate := types.NewSessionID().String()
+		if candidate == exclude {
+			continue
+		}
+		parts := strings.Split(expectedRecordRoot("sessions", candidate), "/")
+		if len(parts) != 3 {
+			t.Fatalf("expectedRecordRoot() = %q, want 3 segments", expectedRecordRoot("sessions", candidate))
+		}
+		if parts[1] == shard {
+			return candidate
+		}
+	}
+
+	t.Fatalf("could not find session ID in shard %q", shard)
+	return ""
 }

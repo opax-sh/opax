@@ -25,6 +25,15 @@ var (
 
 	// ErrRecordExists indicates a record path already exists on opax/v1.
 	ErrRecordExists = errors.New("git: record already exists")
+
+	// ErrRecordNotFound indicates a deterministic record root is missing.
+	ErrRecordNotFound = errors.New("git: record not found")
+
+	// ErrFileNotFound indicates an exact opax branch path is missing.
+	ErrFileNotFound = errors.New("git: file not found")
+
+	// ErrMalformedTree indicates unexpected tree/blob layout while reading.
+	ErrMalformedTree = errors.New("git: malformed opax tree state")
 )
 
 const (
@@ -70,6 +79,21 @@ type WriteRequest struct {
 type WriteResult struct {
 	BranchTip  plumbing.Hash
 	CommitHash plumbing.Hash
+	RecordRoot string
+}
+
+// ReadResult describes a point-in-time record read from opax/v1.
+type ReadResult struct {
+	BranchTip  plumbing.Hash
+	RecordRoot string
+	Files      map[string][]byte
+}
+
+// RecordLocator identifies one record root discovered during WalkRecords.
+type RecordLocator struct {
+	BranchTip  plumbing.Hash
+	Collection string
+	RecordID   string
 	RecordRoot string
 }
 

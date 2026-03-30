@@ -1,10 +1,10 @@
 # Opax — Product Overview
 
-**Version:** 3.0.0
-**Date:** March 23, 2026
+**Version:** 3.1.0
+**Date:** March 30, 2026
 ## Vision
 
-Opax is the structured recording and coordination layer for agent work, built on git.
+Opax is the structured recording, coordination, and product execution layer for agent work, built on git.
 
 ### The problems
 
@@ -13,6 +13,8 @@ Opax is the structured recording and coordination layer for agent work, built on
 2. **Observability** — There is no structured record of agent activity across a project. Teams can't determine which agent wrote what code, what decisions led to an implementation, or how production code traces back to the conversation that produced it. For regulated industries, this is becoming a legal requirement — the EU AI Act, NIST AI RMF, and state-level laws require audit trails for AI-assisted development. Current approaches treat compliance as a separate deliverable rather than a byproduct of the workflow.
 
 3. **Ownership** — Agent memory, orchestration, and observability tools store data in proprietary formats and backends. Context lives in vector databases you don't control, workflow state in vendor runtimes, eval results in SaaS dashboards. None of it is inspectable with standard tools, portable across providers, or co-located with the code it produced.
+
+4. **Execution management** — Engineering teams increasingly split product intent across issue trackers, docs tools, chat, branches, PRs, and agent runtimes. The plan lives in one system, the work happens in another, and the reasoning behind execution is lost between them. Repo-native teams already manage real delivery in git, but the supporting context is still fragmented.
 
 ### Why git
 
@@ -32,6 +34,8 @@ Memory and orchestration are combined because neither is useful alone. Memory wi
 
 Git already provides orchestration primitives — branches are work units, commits are stage gates, hooks are transitions, PRs are review gates, merge is delivery. Multiple agents on a repo is the same problem as multiple developers on a repo. Opax makes these primitives accessible for agent work by adding structured memory and context passing between stages.
 
+For software teams, the long-term user-facing surface is repo-native product execution. Product intent, scoped docs, task state, agent sessions, branches, reviews, and verification records stay linked in one git-backed system. Memory and orchestration remain the substrate; product execution is the layer that makes them useful for day-to-day delivery.
+
 ---
 
 ## Scope
@@ -41,6 +45,8 @@ Opax is a **data spec** for agent data as git objects, an **SDK** for reading an
 Opax is not an intra-session orchestration engine (LangGraph, Temporal, Genkit). Those handle real-time coordination within a single agent session. Opax handles inter-session coordination: what work happens in what order, passing context between stages, enforcing review gates, recording what happened. Those tools are complementary — adapter plugins normalize their output into the Opax data format.
 
 Opax is not an execution environment. It does not manage containers, sandboxes, or CI pipelines. Execution is pluggable via thin drivers. The orchestrator defines what happens; drivers handle where it runs.
+
+Opax is also not a generic company-wide issue tracker or product workspace. The product-management surface is eng-first and git-first: it owns the path from scoped decision to reviewed code. Systems like Linear or Notion can remain upstream planning or publishing layers, but Opax keeps engineering execution state canonical inside the repository.
 
 ---
 
@@ -105,6 +111,10 @@ Developer uses Claude Code to implement auth. Passive capture records the sessio
 Team defines a workflow: implement → review → test → merge, with human gates. Agent A implements on a feature branch and commits. The commit event triggers the next stage — a review agent dispatched with full context from Agent A's session. The review agent sees not just the diff but the reasoning that produced it. On approval, tests run. Results are written as git notes. On pass, merge.
 
 Each stage gets the previous stage's context from Opax memory. Context flows through git. The workflow advances on git events.
+
+### Repo-native product execution
+
+Team keeps its product intent in repo docs: strategy in `docs/product/`, scoped design in `docs/epics/` and `docs/features/`, task breakdowns in `docs/tasks/`, and execution on branches and PRs. An engineer or agent picks up a scoped task, works with prior session context, and updates the same git-backed record as implementation advances. Another engineer can clone the repo and recover both the plan and the execution trail without opening a separate PM tool.
 
 ### Audit trail
 

@@ -50,6 +50,7 @@ Use it as the one-page status rollup across all epics and features.
 - [product/overview.md](product/overview.md)
 - [product/roadmap.md](product/roadmap.md)
 - [product/data-spec.md](product/data-spec.md)
+- [product/gtm-report.md](product/gtm-report.md)
 - [product/storage.md](product/storage.md)
 - [product/hygiene.md](product/hygiene.md)
 - [product/compliance.md](product/compliance.md)

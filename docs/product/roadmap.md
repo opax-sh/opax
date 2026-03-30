@@ -1,7 +1,7 @@
 # Opax Product Roadmap
 
-**Version:** 1.1.0
-**Date:** March 24, 2026
+**Version:** 1.2.0
+**Date:** March 30, 2026
 **Companion to:** [Product Overview](overview.md)
 
 ## Purpose
@@ -21,14 +21,16 @@ For current implementation state, active epics and features, and the complete do
 
 ```text
 Phase 0: CLI + Passive Capture + Memory          <- distribution (free, open-source)
-Phase 1: Workflows + Evals + Executors           <- orchestration foundation
+Phase 1: Workflows + Product Execution + Evals   <- orchestration foundation
 Phase 2: Studio + Remote Execution + Postgres    <- first revenue
 Phase 3: Ecosystem + Compliance + Adapters       <- ecosystem + enterprise
 Phase 4: Intelligence Layer                      <- cross-repo memory and quality signals
 Phase 5: Ecosystem & Generalization              <- broader platform surface
 ```
 
-Memory and orchestration are a single product story. Phase 0 establishes the storage, capture, and query substrate. Phase 1 builds workflow coordination on top of that substrate. Later phases expand visibility, integrations, and hosted experiences.
+Memory and orchestration are a single product story. Phase 0 establishes the storage, capture, and query substrate. Phase 1 builds workflow coordination and repo-native product execution on top of that substrate. Later phases expand visibility, integrations, and hosted experiences.
+
+Product management in Opax means git-first product execution for software teams: scoped docs, tasks, branches, sessions, reviews, and verification stay linked in one repository-backed system. It does not mean competing to become the generic cross-functional workspace for every team in the company.
 
 ## Phase 0
 
@@ -81,13 +83,13 @@ The full Phase 0 loop requires passive capture, memory retrieval, and CLI wiring
 
 ## Phase 1
 
-Goal: workflows, eval hooks, executor drivers, and early compliance support.
-Opax moves from durable memory into coordinated multi-stage delivery, while still using git as the event and audit substrate.
+Goal: workflows, repo-native product execution primitives, eval hooks, executor drivers, and early compliance support.
+Opax moves from durable memory into coordinated multi-stage delivery, where planning docs, task state, agent handoffs, and review gates all run on the same git-backed substrate.
 
 ## Phase 2
 
 Goal: studio UI, remote execution, and a hosted query plane.
-This phase turns the local-first system into a team-facing product surface.
+This phase turns the local-first system into a team-facing product surface derived from repo truth, not a second source of execution state.
 
 ## Phase 3
 

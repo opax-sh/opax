@@ -30,7 +30,7 @@ Annotated tags:     opax/{plugin-defined}
 Commit trailers:    Opax-Save: {save-id}
 ```
 
-Phase 0 fixes the namespace to `opax/` and the trailer prefix to `Opax-`. All data is stored on the single `opax/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/v1/ext-{name}/`. Extension plugins choose their own ID prefixes (avoiding first-party prefixes) and follow the same sharding convention.
+Phase 0 fixes the namespace to `opax/` and the canonical save trailer key to `Opax-Save`. All data is stored on the single `opax/v1` branch with a sharded directory structure. Third-party plugins register their own shard prefix under the same branch via `opax/v1/ext-{name}/`. Extension plugins choose their own ID prefixes (avoiding first-party prefixes) and follow the same sharding convention. Future config surfaces may expose broader trailer naming, but Phase 0 does not.
 
 ### ID Format
 

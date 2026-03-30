@@ -10,7 +10,7 @@
 
 This specification defines how Opax stores structured agent activity data as standard git objects. It is the foundation everything else builds on — the SDK implements it, plugins extend it, and third-party tools can read/write it directly without Opax's involvement.
 
-The spec uses five git primitives: orphan branches, commit trailers, git notes, custom refs, and annotated tags. All Opax data lives under the `opax/` namespace to avoid collision with user branches, refs, and tags.
+The spec uses five git primitives: orphan branches, commit trailers, git notes, custom refs, and annotated tags. Opax-owned branch/custom-ref/tag names stay under the `opax/` namespace, while Git-note refs live under `refs/notes/opax/` so they remain directly compatible with native `git notes`.
 
 **Implementation snapshot note:** This document contains target-state sections for Phase 0+ plus current schema contracts. Where there is drift, current code-level contracts are defined by `internal/types` and current CLI surface in `cmd/opax/main.go`.
 
@@ -21,7 +21,7 @@ The spec uses five git primitives: orphan branches, commit trailers, git notes, 
 ```
 Orphan branch:      opax/v1
 
-Git notes:          refs/opax/notes/{namespace}
+Git notes:          refs/notes/opax/{namespace}
 
 Custom refs:        refs/opax/{purpose}
 
@@ -179,13 +179,13 @@ Notes are annotations attached to existing commits without modifying the commit 
 
 | Namespace                  | Purpose                           | Typical Writer                     |
 | -------------------------- | --------------------------------- | ---------------------------------- |
-| `refs/opax/notes/sessions` | Session linkage (fallback when trailers disabled) | post-commit hook |
+| `refs/notes/opax/sessions` | Session linkage (fallback when trailers disabled) | post-commit hook |
 
-Plugins register their own note namespaces under `refs/opax/notes/` (e.g., `refs/opax/notes/reviews`, `refs/opax/notes/tests`). Notes are the natural fit for plugin data since it arrives after the commit.
+Plugins register their own note namespaces under `refs/notes/opax/` (e.g., `refs/notes/opax/ext-reviews`, `refs/notes/opax/ext-tests`). Notes are the natural fit for plugin data since it arrives after the commit.
 
 ### 3.2 Note Content Format
 
-All notes are JSON objects with a `version` field.
+All notes are JSON objects with a top-level `version` field plus namespace-owned payload fields. The Go API splits that into `types.Note.Version` plus `types.Note.Content`.
 
 **Session link note (`opax-sessions`) — used when trailers are disabled:**
 
@@ -201,11 +201,11 @@ All notes are JSON objects with a `version` field.
 
 ### 3.3 Extension Namespaces
 
-First-party namespaces live directly under `refs/opax/notes/`. Community/third-party namespaces use `refs/opax/notes/ext-{name}`. Third-party tools define their own schemas. The SDK provides generic read/write methods for any namespace.
+First-party namespaces live directly under `refs/notes/opax/`. Community/third-party namespaces use `refs/notes/opax/ext-{name}`. Third-party tools define their own schemas. The SDK provides generic read/write methods for any namespace, and the same refs are directly usable through `git notes --ref=opax/{namespace}`.
 
 ### 3.4 Notes Distribution
 
-Plain `git push` does not push notes or `opax/v1` by default. During `opax init`, the SDK records explicit Opax fetch/push refspecs for later `opax pull` and `opax push` flows. Those explicit refspecs cover both `refs/heads/opax/v1` and `refs/opax/*`. Auto-push on commit is off by default — sharing Opax data remains explicit.
+Plain `git push` does not push notes or `opax/v1` by default. During `opax init`, the SDK records explicit Opax fetch/push refspecs for later `opax pull` and `opax push` flows. Those explicit refspecs cover `refs/heads/opax/v1`, custom refs under `refs/opax/*`, and notes under `refs/notes/opax/*`. Auto-push on commit is off by default — sharing Opax data remains explicit.
 
 ---
 
@@ -231,7 +231,7 @@ Opax-Save: sav_01JQXYZ...
 
 The trailer is minimal — just the save ID. Agent identity and duration live on the session archives linked from the save, not on the commit itself. Plugins may define additional trailers (e.g., `Opax-Stage`, `Opax-Workflow`).
 
-Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (`--no-trailers`), session linkage falls back to git notes via `refs/opax/notes/sessions` — functional but mutable.
+Trailers are queryable via `git log --format="%(trailers)"`. When trailers are disabled (`--no-trailers`), session linkage falls back to git notes via `refs/notes/opax/sessions` — functional but mutable.
 
 ---
 
@@ -340,7 +340,7 @@ CREATE TABLE opax_materializer_state (
 Plugins store data using two mechanisms the core already materializes:
 
 1. **Branch directories** — plugins write records under `opax/v1/ext-{name}/` using the same sharding convention. The core materializer walks these generically during rebuild.
-2. **Git notes** — plugins register their own note namespaces under `refs/opax/notes/` (e.g., `refs/opax/notes/reviews`, `refs/opax/notes/tests`). Notes are materialized into the generic `opax_notes` table.
+2. **Git notes** — plugins register their own note namespaces under `refs/notes/opax/` (e.g., `refs/notes/opax/ext-reviews`, `refs/notes/opax/ext-tests`). Notes are materialized into the generic `opax_notes` table.
 
 Plugins that need richer queries create **views** over `opax_notes` using `json_extract`, not new tables. This keeps the materializer simple — it doesn't need to understand plugin schemas — and preserves the "SQLite is a cache" invariant since `opax db rebuild` only needs to know about core tables.
 
@@ -351,7 +351,7 @@ CREATE VIEW opax_reviews AS
     json_extract(content, '$.reviewer') AS reviewer,
     json_extract(content, '$.verdict') AS verdict,
     json_extract(content, '$.summary') AS summary
-  FROM opax_notes WHERE namespace = 'reviews';
+  FROM opax_notes WHERE namespace = 'ext-reviews';
 ```
 
 ### 7.3 StorageAdapter Interface

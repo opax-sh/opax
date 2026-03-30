@@ -34,11 +34,21 @@ var (
 
 	// ErrMalformedTree indicates unexpected tree/blob layout while reading.
 	ErrMalformedTree = errors.New("git: malformed opax tree state")
+
+	// ErrNoteNotFound indicates a note is absent for a target commit/namespace.
+	ErrNoteNotFound = errors.New("git: note not found")
+
+	// ErrMalformedNote indicates unexpected tree/blob/payload layout in a notes ref.
+	ErrMalformedNote = errors.New("git: malformed git note state")
+
+	// ErrNoteConflict indicates the namespace ref changed during note publication.
+	ErrNoteConflict = errors.New("git: note ref changed")
 )
 
 const (
 	opaxBranchRef       = "refs/heads/opax/v1"
 	opaxBranchName      = "opax/v1"
+	opaxNotesRefPrefix  = "refs/notes/opax/"
 	opaxSentinelPath    = "meta/version.json"
 	opaxSentinelCreator = "opax"
 	opaxLayoutVersion   = 1
@@ -51,6 +61,7 @@ const (
 	maxRefPublishAttempts = 8
 	refPublishBackoffBase = 10 * time.Millisecond
 	refPublishBackoffCap  = 100 * time.Millisecond
+	noteFanoutPrefixLen   = 2
 )
 
 type opaxBranchSentinel struct {

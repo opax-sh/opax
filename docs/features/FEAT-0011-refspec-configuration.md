@@ -53,8 +53,10 @@ Standard Git config remains responsible for code fetch behavior. Opax stores its
 [opax "remote.origin"]
     fetch = +refs/heads/opax/v1:refs/remotes/origin/opax/v1
     fetch = +refs/opax/*:refs/opax/*
+    fetch = +refs/notes/opax/*:refs/notes/opax/*
     push = +refs/heads/opax/v1:refs/heads/opax/v1
     push = +refs/opax/*:refs/opax/*
+    push = +refs/notes/opax/*:refs/notes/opax/*
 ```
 
 This keeps plain `git fetch` / `git push` predictable while giving later `opax pull` / `opax push` a canonical source of explicit refspecs.
@@ -77,6 +79,7 @@ Stored under `opax.remote.<name>.fetch` (represented in git-config as `[opax "re
 
 - `+refs/heads/opax/v1:refs/remotes/<name>/opax/v1`
 - `+refs/opax/*:refs/opax/*`
+- `+refs/notes/opax/*:refs/notes/opax/*`
 
 These are not activated by plain `git fetch`; later Opax commands will use them explicitly.
 
@@ -86,6 +89,7 @@ Stored under `opax.remote.<name>.push`:
 
 - `+refs/heads/opax/v1:refs/heads/opax/v1`
 - `+refs/opax/*:refs/opax/*`
+- `+refs/notes/opax/*:refs/notes/opax/*`
 
 Phase 0 must **not** write `remote.<name>.push` for Opax refs. That would change plain `git push` behavior.
 

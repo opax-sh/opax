@@ -10,7 +10,7 @@
 
 ## Goal
 
-Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/opax/notes/`*, support `Opax-Save` trailer parsing and insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
+Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/notes/opax/`*, support `Opax-Save` trailer parsing and insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
 
 ## Why This Epic Matters
 
@@ -32,7 +32,7 @@ This is the riskiest Phase 0 epic because it combines custom git object manipula
 Phase 0 does **not** treat these names as user-configurable, even though some product docs discuss future configurability.
 
 - Data branch: `refs/heads/opax/v1`
-- Notes refs: `refs/opax/notes/{namespace}`
+- Notes refs: `refs/notes/opax/{namespace}`
 - Commit trailer key: `Opax-Save`
 
 This avoids accidental complexity in the hardest plumbing epic. Future configurability can be layered on after the branch, notes, and trailer flows are proven.
@@ -99,7 +99,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 | FEAT-0006  | Orphan branch management | Create and validate `opax/v1` with a root sentinel                               | Defines what a valid Opax branch is           |
 | FEAT-0007  | Write records to branch  | Append-only record writes using blobs, trees, commits, and per-ref CAS retry      | Hardest feature in the epic                   |
 | FEAT-0008  | Read records from branch | Point reads from `opax/v1` by record ID/path                                     | Internal primitive for rebuild/sync/debugging |
-| FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/opax/notes/`* with per-namespace CAS retry      | Mutable metadata layer                        |
+| FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/notes/opax/`* with per-namespace CAS retry      | Mutable metadata layer                        |
 | FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
 | FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
 
@@ -177,10 +177,10 @@ No caller-supplied absolute paths, parent traversal, or unscoped tree edits.
 
 ### Notes Contract
 
-`FEAT-0009` owns notes refs under `refs/opax/notes/*` only. It does not reuse normal branch writes.
+`FEAT-0009` owns notes refs under `refs/notes/opax/*` only. It does not reuse normal branch writes.
 
-- First-party example: `refs/opax/notes/sessions`
-- Third-party/community example: `refs/opax/notes/ext-reviews`
+- First-party example: `refs/notes/opax/sessions`
+- Third-party/community example: `refs/notes/opax/ext-reviews`
 
 ### Trailer Contract
 
@@ -196,7 +196,8 @@ No caller-supplied absolute paths, parent traversal, or unscoped tree edits.
 `FEAT-0011` must treat these as distinct objects:
 
 - branch ref: `refs/heads/opax/v1`
-- custom refs and notes: `refs/opax/*`
+- custom refs: `refs/opax/*`
+- notes refs: `refs/notes/opax/*`
 
 The feature must not blur them into a fake shared namespace.
 

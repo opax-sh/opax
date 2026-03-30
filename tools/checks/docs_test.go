@@ -108,6 +108,47 @@ func TestRoadmapAvoidsCurrentStateDuplication(t *testing.T) {
 	}
 }
 
+func TestNotesDocsUseCanonicalGitNotesNamespace(t *testing.T) {
+	root := docsRoot(t)
+
+	featureDoc := mustReadFile(t, filepath.Join(root, "features", "FEAT-0009-git-notes-operations.md"))
+	for _, needle := range []string{
+		"refs/notes/opax/{namespace}",
+		"`git notes --ref=opax/sessions show <commit>`",
+		"`git notes --ref=opax/ext-reviews add -m '<json>' <commit>`",
+		"`ErrNoteNotFound`",
+		"`ErrMalformedNote`",
+		"`ErrNoteConflict`",
+	} {
+		if !strings.Contains(featureDoc, needle) {
+			t.Errorf("FEAT-0009 doc is missing %q", needle)
+		}
+	}
+	if strings.Contains(featureDoc, "refs/opax/notes/") {
+		t.Error("FEAT-0009 doc should not reference refs/opax/notes/")
+	}
+
+	dataSpec := mustReadFile(t, filepath.Join(root, "product", "data-spec.md"))
+	for _, needle := range []string{
+		"refs/notes/opax/{namespace}",
+		"refs/notes/opax/sessions",
+		"refs/notes/opax/ext-reviews",
+		"namespace = 'ext-reviews'",
+	} {
+		if !strings.Contains(dataSpec, needle) {
+			t.Errorf("data-spec doc is missing %q", needle)
+		}
+	}
+	if strings.Contains(dataSpec, "refs/opax/notes/") {
+		t.Error("data-spec doc should not reference refs/opax/notes/")
+	}
+
+	refspecDoc := mustReadFile(t, filepath.Join(root, "features", "FEAT-0011-refspec-configuration.md"))
+	if !strings.Contains(refspecDoc, "+refs/notes/opax/*:refs/notes/opax/*") {
+		t.Error("FEAT-0011 doc should include explicit notes refspecs")
+	}
+}
+
 func TestEpicAndFeatureDocsHaveValidStatus(t *testing.T) {
 	root := docsRoot(t)
 	for _, dir := range []string{"epics", "features"} {

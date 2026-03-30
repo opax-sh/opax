@@ -1,7 +1,8 @@
 # FEAT-0010 - Commit Trailer Support
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Backlog
+**Status:** In Progress
+**Last synced:** 2026-03-30
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0002 (ID types)
 **Dependents:** E4 commit linkage, E8 save creation, E11 hook lifecycle
 

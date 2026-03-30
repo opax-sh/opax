@@ -7,33 +7,30 @@ Use it as the one-page status rollup across all epics and features.
 
 ### Epic Status Rollup
 
-| Epic | Status | Doc |
-| --- | --- | --- |
-| EPIC-0000 | Completed | [epics/EPIC-0000-foundation.md](epics/EPIC-0000-foundation.md) |
+
+| Epic      | Status      | Doc                                                                            |
+| --------- | ----------- | ------------------------------------------------------------------------------ |
+| EPIC-0000 | Completed   | [epics/EPIC-0000-foundation.md](epics/EPIC-0000-foundation.md)                 |
 | EPIC-0001 | In Progress | [epics/EPIC-0001-git-plumbing-layer.md](epics/EPIC-0001-git-plumbing-layer.md) |
+
 
 ### Feature Status Rollup
 
-| Feature | Epic | Status | Doc |
-| --- | --- | --- | --- |
-| FEAT-0001 | EPIC-0000 | Completed | [features/FEAT-0001-add-dependencies.md](features/FEAT-0001-add-dependencies.md) |
-| FEAT-0002 | EPIC-0000 | Completed | [features/FEAT-0002-core-domain-types.md](features/FEAT-0002-core-domain-types.md) |
-| FEAT-0003 | EPIC-0000 | Completed | [features/FEAT-0003-configuration-system.md](features/FEAT-0003-configuration-system.md) |
-| FEAT-0004 | EPIC-0000 | Completed | [features/FEAT-0004-file-lock-utility.md](features/FEAT-0004-file-lock-utility.md) |
-| FEAT-0005 | EPIC-0001 | Completed | [features/FEAT-0005-repo-discovery.md](features/FEAT-0005-repo-discovery.md) |
+
+| Feature   | Epic      | Status    | Doc                                                                                              |
+| --------- | --------- | --------- | ------------------------------------------------------------------------------------------------ |
+| FEAT-0001 | EPIC-0000 | Completed | [features/FEAT-0001-add-dependencies.md](features/FEAT-0001-add-dependencies.md)                 |
+| FEAT-0002 | EPIC-0000 | Completed | [features/FEAT-0002-core-domain-types.md](features/FEAT-0002-core-domain-types.md)               |
+| FEAT-0003 | EPIC-0000 | Completed | [features/FEAT-0003-configuration-system.md](features/FEAT-0003-configuration-system.md)         |
+| FEAT-0004 | EPIC-0000 | Completed | [features/FEAT-0004-file-lock-utility.md](features/FEAT-0004-file-lock-utility.md)               |
+| FEAT-0005 | EPIC-0001 | Completed | [features/FEAT-0005-repo-discovery.md](features/FEAT-0005-repo-discovery.md)                     |
 | FEAT-0006 | EPIC-0001 | Completed | [features/FEAT-0006-orphan-branch-management.md](features/FEAT-0006-orphan-branch-management.md) |
-| FEAT-0007 | EPIC-0001 | Completed | [features/FEAT-0007-write-records-to-branch.md](features/FEAT-0007-write-records-to-branch.md) |
-| FEAT-0008 | EPIC-0001 | In Progress | [features/FEAT-0008-read-records-from-branch.md](features/FEAT-0008-read-records-from-branch.md) |
-| FEAT-0009 | EPIC-0001 | Backlog | [features/FEAT-0009-git-notes-operations.md](features/FEAT-0009-git-notes-operations.md) |
-| FEAT-0010 | EPIC-0001 | Backlog | [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md) |
-| FEAT-0011 | EPIC-0001 | Backlog | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md) |
+| FEAT-0007 | EPIC-0001 | Completed | [features/FEAT-0007-write-records-to-branch.md](features/FEAT-0007-write-records-to-branch.md)   |
+| FEAT-0008 | EPIC-0001 | Completed | [features/FEAT-0008-read-records-from-branch.md](features/FEAT-0008-read-records-from-branch.md) |
+| FEAT-0009 | EPIC-0001 | Backlog   | [features/FEAT-0009-git-notes-operations.md](features/FEAT-0009-git-notes-operations.md)         |
+| FEAT-0010 | EPIC-0001 | Backlog   | [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md)     |
+| FEAT-0011 | EPIC-0001 | Backlog   | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)       |
 
-### Current Implementation Snapshot
-
-- Foundation is implemented: dependencies, canonical types, configuration loading and validation, and the file-lock utility.
-- Git plumbing is partially implemented: repository discovery, Opax branch bootstrap and validation, and append-only record writes on `opax/v1`.
-- The next planned git plumbing slice is direct branch reads, notes operations, commit trailer support, and refspec configuration.
-- The current user-facing CLI shape is `opax version`, `opax init`, `opax search`, `opax db rebuild`, `opax session list`, `opax session get`, `opax storage stats`, and `opax doctor`.
 
 ## Update Rules
 
@@ -100,3 +97,4 @@ Use it as the one-page status rollup across all epics and features.
 
 - [misc/sharding-research.md](misc/sharding-research.md)
 - [misc/git-sqlite-research.md](misc/git-sqlite-research.md)
+

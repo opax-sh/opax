@@ -129,6 +129,8 @@ type TrailersConfig struct {
 
 `Enabled` defaults to `true`. `Prefix` defaults to `"Opax-"`, matching architecture invariant #8 (`Opax-Save` trailer).
 
+Phase 0 uses a fixed canonical trailer key, `Opax-Save`. `trailers.enabled` controls whether hook flows use trailers at all, while `trailers.prefix` is reserved for future trailer-naming extensibility and is not consumed by FEAT-0010 in Phase 0.
+
 ### SDK Defaults
 
 The `Default()` function returns this configuration. These values apply when no config file exists or when a config file omits a field.
@@ -238,7 +240,7 @@ func Validate(cfg *OpaxConfig) error
 | Duration format   | `storage.retention.compliance_floor` | Must parse as a duration if non-empty           |
 | Entropy range     | `scrubbing.entropy.threshold`        | Must be > 0 if entropy enabled                  |
 | Length range      | `scrubbing.entropy.min_length`       | Must be > 0 if entropy enabled                  |
-| Trailer prefix    | `trailers.prefix`                    | Must end with `"-"` if non-empty                |
+| Trailer prefix    | `trailers.prefix`                    | Must end with `"-"` if non-empty; reserved for future trailer naming |
 
 
 Error message format: `config: validate: {section}.{field}: {reason}`.
@@ -286,6 +288,7 @@ func ParseDuration(s string) (time.Duration, error)
 - `ParseDuration("invalid")` returns an error
 - `Validate()` rejects `hygiene.version: 0`
 - `Validate()` rejects `trailers.prefix: "NoTrailingDash"`
+- Phase 0 trailer naming remains fixed to canonical `Opax-Save` even when `trailers.prefix` is present in config
 - Error messages include file path and field name
 - Table-driven tests, stdlib `testing` only
 

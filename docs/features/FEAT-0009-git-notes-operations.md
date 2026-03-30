@@ -1,7 +1,8 @@
 # FEAT-0009 - Git Notes Operations
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Backlog
+**Status:** In Progress
+**Last synced:** 2026-03-30
 **Dependencies:** FEAT-0005 (Repo discovery)
 **Dependents:** E4 commit linkage fallback, E5 rebuild, E8 memory plugin, future eval/review plugins
 

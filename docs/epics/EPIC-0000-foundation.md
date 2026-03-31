@@ -278,7 +278,7 @@ type CaptureConfig struct {
 ```go
 type TrailersConfig struct {
     Enabled bool   `yaml:"enabled"` // default: true
-    Prefix  string `yaml:"prefix"`  // default: "Opax-"
+    Prefix  string `yaml:"prefix"`  // default: "Opax-" (future trailer naming; Phase 0 key stays fixed)
 }
 ```
 
@@ -327,6 +327,8 @@ trailers:
   enabled: true
   prefix: "Opax-"
 ```
+
+Phase 0 still fixes the actual commit trailer key to `Opax-Save`. The config field exists so later phases can widen naming behavior without reshaping the config schema.
 
 ### Strict Validation
 

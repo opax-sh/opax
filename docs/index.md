@@ -37,6 +37,7 @@ Use it as the one-page status rollup across all epics and features.
 
 - Work-state changes update both the scoped epic/feature doc status and this rollup.
 - Scope, contracts, acceptance criteria, or test-plan changes update the scoped epic or feature doc.
+- Execution sequencing and migration breakdown changes update `docs/tasks/`.
 - Strategy, phase planning, and cross-cutting product direction changes update `docs/product/`.
 - Structural conventions and package boundaries update `docs/architecture/`.
 - Non-obvious decisions with trade-offs update `docs/adrs/`.
@@ -80,6 +81,10 @@ Use it as the one-page status rollup across all epics and features.
 - [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)
 - [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md)
 - [features/_template.md](features/_template.md)
+
+### `tasks/`
+
+- [tasks/FEAT-0012-native-git-backend-adapter-migration.md](tasks/FEAT-0012-native-git-backend-adapter-migration.md)
 
 ### `architecture/`
 

@@ -126,5 +126,6 @@ Verification commands:
 
 ## Notes
 
+- Detailed rollout sequencing lives in [`docs/tasks/FEAT-0012-native-git-backend-adapter-migration.md`](../tasks/FEAT-0012-native-git-backend-adapter-migration.md).
 - `go-git` may remain in tests as temporary fixture/scaffolding support, but not as the production semantics oracle.
 - This feature is a backend migration wave, not a per-feature shell-out fallback strategy.

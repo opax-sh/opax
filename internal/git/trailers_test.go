@@ -1,6 +1,8 @@
 package git_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -30,6 +32,26 @@ func TestUpsertSaveTrailerPlainMessage(t *testing.T) {
 	want := "feat: test\n\nbody\n\nOpax-Save: " + saveID.String() + "\n"
 	if string(got) != want {
 		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
+	}
+}
+
+func TestUpsertSaveTrailerSubjectOnlyMessage(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	message := []byte("feat: test\n")
+	got, saveID, err := internalgit.UpsertSaveTrailer(ctx, message)
+	if err != nil {
+		t.Fatalf("UpsertSaveTrailer() error = %v", err)
+	}
+
+	want := "feat: test\n\nOpax-Save: " + saveID.String() + "\n"
+	if string(got) != want {
+		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
+	}
+
+	if parsed := parseTrailersWithGit(t, repoRoot, string(got)); parsed != "Opax-Save: "+saveID.String() {
+		t.Fatalf("git interpret-trailers --parse = %q, want %q", parsed, "Opax-Save: "+saveID.String())
 	}
 }
 
@@ -70,6 +92,29 @@ func TestUpsertSaveTrailerPreservesOtherTrailers(t *testing.T) {
 		"",
 		"Signed-off-by: Dev <dev@example.com>",
 		"Reviewed-by: QA <qa@example.com>",
+		"Opax-Save: " + saveID.String(),
+		"",
+	}, "\n")
+	if string(got) != want {
+		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
+	}
+}
+
+func TestUpsertSaveTrailerTreatsUnseparatedTrailerLikeLinesAsBody(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	message := []byte("feat: test\nContext: still body\nDetails: still body\n")
+	got, saveID, err := internalgit.UpsertSaveTrailer(ctx, message)
+	if err != nil {
+		t.Fatalf("UpsertSaveTrailer() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"feat: test",
+		"Context: still body",
+		"Details: still body",
+		"",
 		"Opax-Save: " + saveID.String(),
 		"",
 	}, "\n")
@@ -131,6 +176,60 @@ func TestUpsertSaveTrailerPreservesCommentBlockCustomChar(t *testing.T) {
 	}
 }
 
+func TestUpsertSaveTrailerPreservesAutoCommentBlock(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	runGit(t, repoRoot, "config", "core.commentChar", "auto")
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	message := []byte("feat: test\n\n# body starts with hash\n\n; ------------------------ >8 ------------------------\n; comment after scissor\n")
+	got, saveID, err := internalgit.UpsertSaveTrailer(ctx, message)
+	if err != nil {
+		t.Fatalf("UpsertSaveTrailer() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"feat: test",
+		"",
+		"# body starts with hash",
+		"",
+		"Opax-Save: " + saveID.String(),
+		"",
+		"; ------------------------ >8 ------------------------",
+		"; comment after scissor",
+		"",
+	}, "\n")
+	if string(got) != want {
+		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
+	}
+}
+
+func TestUpsertSaveTrailerPreservesCommentBlockMultiCharPrefix(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	runGit(t, repoRoot, "config", "core.commentChar", "//")
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	message := []byte("feat: test\n\nbody\n\n// comment one\n// comment two\n")
+	got, saveID, err := internalgit.UpsertSaveTrailer(ctx, message)
+	if err != nil {
+		t.Fatalf("UpsertSaveTrailer() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"feat: test",
+		"",
+		"body",
+		"",
+		"Opax-Save: " + saveID.String(),
+		"",
+		"// comment one",
+		"// comment two",
+		"",
+	}, "\n")
+	if string(got) != want {
+		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
+	}
+}
+
 func TestUpsertSaveTrailerHandlesScissors(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
@@ -159,6 +258,19 @@ func TestUpsertSaveTrailerHandlesScissors(t *testing.T) {
 
 func TestParseSaveTrailerAbsent(t *testing.T) {
 	saveID, ok, err := internalgit.ParseSaveTrailer([]byte("feat: test\n\nbody\n"))
+	if err != nil {
+		t.Fatalf("ParseSaveTrailer() error = %v", err)
+	}
+	if ok {
+		t.Fatalf("ParseSaveTrailer() ok = true, want false with ID %q", saveID)
+	}
+	if saveID != "" {
+		t.Fatalf("ParseSaveTrailer() ID = %q, want empty", saveID)
+	}
+}
+
+func TestParseSaveTrailerRequiresBlankSeparator(t *testing.T) {
+	saveID, ok, err := internalgit.ParseSaveTrailer([]byte("feat: test\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\n"))
 	if err != nil {
 		t.Fatalf("ParseSaveTrailer() error = %v", err)
 	}
@@ -209,4 +321,15 @@ func TestParseSaveTrailerFromCommit(t *testing.T) {
 	if saveID.String() != "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV" {
 		t.Fatalf("ParseSaveTrailerFromCommit() ID = %q, want %q", saveID, "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	}
+}
+
+func parseTrailersWithGit(t *testing.T, dir, message string) string {
+	t.Helper()
+
+	messagePath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
+	if err := os.WriteFile(messagePath, []byte(message), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", messagePath, err)
+	}
+
+	return strings.TrimSpace(runGit(t, dir, "interpret-trailers", "--parse", messagePath))
 }

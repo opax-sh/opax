@@ -201,6 +201,83 @@ func TestUpsertSaveTrailerPreservesAutoCommentBlock(t *testing.T) {
 	if string(got) != want {
 		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
 	}
+
+}
+
+func TestUpsertSaveTrailerAutoKeepsTrailingMarkdownListInBody(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	runGit(t, repoRoot, "config", "core.commentChar", "auto")
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	message := []byte("feat: test\n\nbody\n\n- item one\n- item two\n")
+	got, saveID, err := internalgit.UpsertSaveTrailer(ctx, message)
+	if err != nil {
+		t.Fatalf("UpsertSaveTrailer() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"feat: test",
+		"",
+		"body",
+		"",
+		"- item one",
+		"- item two",
+		"",
+		"Opax-Save: " + saveID.String(),
+		"",
+	}, "\n")
+	if string(got) != want {
+		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
+	}
+
+	parsedID, ok, err := internalgit.ParseSaveTrailer(got)
+	if err != nil {
+		t.Fatalf("ParseSaveTrailer() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("ParseSaveTrailer() ok = false, want true for %q", got)
+	}
+	if parsedID != saveID {
+		t.Fatalf("ParseSaveTrailer() ID = %q, want %q", parsedID, saveID)
+	}
+}
+
+func TestUpsertSaveTrailerAutoKeepsPunctuationParagraphInBody(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	runGit(t, repoRoot, "config", "core.commentChar", "auto")
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	message := []byte("feat: test\n\nbody\n\n; not template\n; still body text\n")
+	got, saveID, err := internalgit.UpsertSaveTrailer(ctx, message)
+	if err != nil {
+		t.Fatalf("UpsertSaveTrailer() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"feat: test",
+		"",
+		"body",
+		"",
+		"; not template",
+		"; still body text",
+		"",
+		"Opax-Save: " + saveID.String(),
+		"",
+	}, "\n")
+	if string(got) != want {
+		t.Fatalf("UpsertSaveTrailer() = %q, want %q", got, want)
+	}
+
+	parsedID, ok, err := internalgit.ParseSaveTrailer(got)
+	if err != nil {
+		t.Fatalf("ParseSaveTrailer() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("ParseSaveTrailer() ok = false, want true for %q", got)
+	}
+	if parsedID != saveID {
+		t.Fatalf("ParseSaveTrailer() ID = %q, want %q", parsedID, saveID)
+	}
 }
 
 func TestUpsertSaveTrailerPreservesCommentBlockMultiCharPrefix(t *testing.T) {
@@ -320,6 +397,61 @@ func TestParseSaveTrailerFromCommit(t *testing.T) {
 	}
 	if saveID.String() != "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV" {
 		t.Fatalf("ParseSaveTrailerFromCommit() ID = %q, want %q", saveID, "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}
+}
+
+func TestUpsertSaveTrailerParseRoundTripSupportedMessages(t *testing.T) {
+	cases := []struct {
+		name        string
+		commentChar string
+		message     string
+	}{
+		{
+			name:    "plain message",
+			message: "feat: test\n\nbody\n",
+		},
+		{
+			name:    "existing mixed-case save trailer",
+			message: "feat: test\n\nbody\n\nopax-save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\n",
+		},
+		{
+			name:    "preserve other trailers",
+			message: "feat: test\n\nbody\n\nSigned-off-by: Dev <dev@example.com>\n",
+		},
+		{
+			name:        "auto ambiguous punctuation remains body",
+			commentChar: "auto",
+			message:     "feat: test\n\nbody\n\n; not template\n; still body text\n",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repoRoot := initGitRepo(t)
+			if tc.commentChar != "" {
+				runGit(t, repoRoot, "config", "core.commentChar", tc.commentChar)
+			}
+			ctx := mustDiscoverRepo(t, repoRoot)
+
+			updated, saveID, err := internalgit.UpsertSaveTrailer(ctx, []byte(tc.message))
+			if err != nil {
+				t.Fatalf("UpsertSaveTrailer() error = %v", err)
+			}
+			if err := saveID.Validate(); err != nil {
+				t.Fatalf("UpsertSaveTrailer() returned invalid save ID %q: %v", saveID, err)
+			}
+
+			parsedID, ok, err := internalgit.ParseSaveTrailer(updated)
+			if err != nil {
+				t.Fatalf("ParseSaveTrailer() error = %v", err)
+			}
+			if !ok {
+				t.Fatalf("ParseSaveTrailer() ok = false for updated message %q", updated)
+			}
+			if parsedID != saveID {
+				t.Fatalf("ParseSaveTrailer() ID = %q, want %q", parsedID, saveID)
+			}
+		})
 	}
 }
 

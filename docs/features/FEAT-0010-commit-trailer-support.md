@@ -54,7 +54,7 @@ Phase 0 uses one fixed canonical trailer key:
 `UpsertSaveTrailer` performs these steps:
 
 1. generate a new `sav_` ID via `AllocateSaveID`
-2. resolve the repository's Git comment character from `ctx`, defaulting to `#` when unset
+2. resolve the repository's active Git comment prefix from `ctx`, defaulting to `#` when unset and inferring the actual trailing template prefix from the message when `core.commentChar=auto`
 3. parse the existing commit message
 4. remove any existing save trailers using case-insensitive token matching
 5. insert exactly one canonical `Opax-Save: <new-id>` trailer
@@ -66,10 +66,11 @@ Phase 0 uses one fixed canonical trailer key:
 The helper should behave like a normal Git trailer writer for supported Phase 0 cases:
 
 - keep the main body intact
-- maintain one blank line between body and trailer block when needed
+- only treat a trailing paragraph as trailers when it is separated from the preceding body by a blank line
+- maintain one blank line between body and trailer block when inserting trailers
 - preserve existing non-Opax trailer ordering
 - place the trailer after the body / existing trailer block and before the trailing commented template block
-- treat scissor/template lines that begin with the active comment char as part of the preserved comment block
+- treat scissor/template lines that begin with the active comment prefix, including multi-character prefixes, as part of the preserved comment block
 
 ### Regeneration Rules
 
@@ -105,8 +106,10 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 - **Existing `Opax-Save` trailer present** - remove and replace it with a new value
 - **Existing `opax-save` trailer present** - treat it as the same token and replace it with canonical `Opax-Save`
 - **Commented commit template** - preserve comments and insert the trailer above them
-- **Non-default `core.commentChar`** - preserve the comment block using the configured comment character
+- **Non-default `core.commentChar`** - preserve the comment block using the configured comment prefix, including multi-character values such as `//`
+- **`core.commentChar=auto`** - infer the actual trailing template prefix from the existing message and preserve that block above the inserted trailer
 - **Commit message with other trailers** - preserve them; only rewrite `Opax-Save`
+- **Body text ending with `token: value` lines but no blank separator** - treat those lines as body text, not as an existing trailer block
 - **Malformed existing save ID** - replace during prepare phase; error during parse phase if reading an already committed message
 - **Multiple `Opax-Save` trailers** - error on parse; normalize to one on upsert
 
@@ -117,6 +120,7 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 - `AllocateSaveID` returns valid `sav_` IDs
 - `UpsertSaveTrailer` inserts exactly one `Opax-Save` trailer into a plain commit message
 - `UpsertSaveTrailer` reads Git comment formatting rules from the repository context
+- `UpsertSaveTrailer` preserves native Git trailer visibility by keeping the blank-line separator before the trailer block
 - `UpsertSaveTrailer` preserves non-Opax trailers and comment blocks
 - `UpsertSaveTrailer` replaces any existing save trailer with a new ID using case-insensitive token matching
 - `ParseSaveTrailer` parses exactly one valid trailer and rejects malformed or duplicate values
@@ -131,12 +135,17 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 |---|---|---|
 | `TestAllocateSaveID` | Save ID generation | Returns valid `sav_` ID |
 | `TestUpsertSaveTrailerPlainMessage` | Basic trailer insertion | Exactly one `Opax-Save` trailer added |
+| `TestUpsertSaveTrailerSubjectOnlyMessage` | Subject-only insertion | Adds a blank-separated trailer that native Git still parses |
 | `TestUpsertSaveTrailerReplacesExistingMixedCase` | Replace semantics | Mixed-case old trailer removed, canonical new one inserted |
 | `TestUpsertSaveTrailerPreservesOtherTrailers` | Trailer coexistence | Other trailers preserved verbatim |
+| `TestUpsertSaveTrailerTreatsUnseparatedTrailerLikeLinesAsBody` | Blank-line requirement | `token: value` body lines stay in the body when not blank-line-separated |
 | `TestUpsertSaveTrailerPreservesCommentBlockDefaultChar` | Default comment char handling | `#` comments preserved below trailer block |
 | `TestUpsertSaveTrailerPreservesCommentBlockCustomChar` | Custom comment char handling | Non-default comment block preserved below trailer block |
+| `TestUpsertSaveTrailerPreservesAutoCommentBlock` | Auto comment prefix handling | Inferred template prefix preserved below trailer block |
+| `TestUpsertSaveTrailerPreservesCommentBlockMultiCharPrefix` | Multi-character comment prefix handling | Multi-character comment block preserved below trailer block |
 | `TestUpsertSaveTrailerHandlesScissors` | Scissor/template handling | Trailer inserted above preserved scissor block |
 | `TestParseSaveTrailerAbsent` | Missing trailer | Returns `(_, false, nil)` |
+| `TestParseSaveTrailerRequiresBlankSeparator` | Blank-line requirement on parse | Unseparated `Opax-Save` line is treated as body text |
 | `TestParseSaveTrailerMalformedValue` | Invalid trailer payload | Error |
 | `TestParseSaveTrailerDuplicateMixedCase` | Duplicate trailer detection | Error even with mixed token casing |
 | `TestParseSaveTrailerFromCommit` | Commit object parsing | Trailer read correctly from commit |

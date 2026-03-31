@@ -3,14 +3,15 @@ package git
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/opax-sh/opax/internal/types"
 )
 
 const (
-	saveTrailerKey        = "Opax-Save"
-	defaultGitCommentChar = "#"
+	saveTrailerKey          = "Opax-Save"
+	defaultGitCommentPrefix = "#"
 )
 
 type trailerEntry struct {
@@ -25,13 +26,13 @@ func AllocateSaveID() types.SaveID {
 
 // UpsertSaveTrailer inserts one canonical save trailer into a commit message.
 func UpsertSaveTrailer(ctx *RepoContext, message []byte) ([]byte, types.SaveID, error) {
-	commentChar, err := resolveGitCommentChar(ctx)
+	lines, hasTrailingNewline := splitMessageLines(message)
+	commentPrefix, err := resolveGitCommentPrefix(ctx, lines)
 	if err != nil {
 		return nil, "", err
 	}
 
-	lines, hasTrailingNewline := splitMessageLines(message)
-	contentLines, commentBlock := splitTrailingCommentBlock(lines, commentChar)
+	contentLines, commentBlock := splitTrailingCommentBlock(lines, commentPrefix)
 	contentLines = trimTrailingBlankLines(contentLines)
 
 	bodyLines, existingTrailers := splitTrailerBlock(contentLines)
@@ -124,7 +125,7 @@ func ParseSaveTrailerFromCommit(ctx *RepoContext, commitHash string) (types.Save
 	return saveID, ok, nil
 }
 
-func resolveGitCommentChar(ctx *RepoContext) (string, error) {
+func resolveGitCommentPrefix(ctx *RepoContext, lines []string) (string, error) {
 	repo, err := openRepoFromContext(ctx)
 	if err != nil {
 		return "", err
@@ -135,14 +136,17 @@ func resolveGitCommentChar(ctx *RepoContext) (string, error) {
 		return "", fmt.Errorf("git: read repository config: %w", err)
 	}
 
-	commentChar := strings.TrimSpace(cfg.Core.CommentChar)
+	commentPrefix := strings.TrimSpace(cfg.Core.CommentChar)
 	switch {
-	case commentChar == "", strings.EqualFold(commentChar, "auto"):
-		return defaultGitCommentChar, nil
-	case len(commentChar) == 1:
-		return commentChar, nil
+	case commentPrefix == "":
+		return defaultGitCommentPrefix, nil
+	case strings.EqualFold(commentPrefix, "auto"):
+		if inferredPrefix := inferAutoCommentPrefix(lines); inferredPrefix != "" {
+			return inferredPrefix, nil
+		}
+		return defaultGitCommentPrefix, nil
 	default:
-		return "", fmt.Errorf("git: invalid core.commentChar %q", cfg.Core.CommentChar)
+		return commentPrefix, nil
 	}
 }
 
@@ -184,7 +188,7 @@ func joinMessageLines(lines []string, trailingNewline bool) []byte {
 	return []byte(text)
 }
 
-func splitTrailingCommentBlock(lines []string, commentChar string) ([]string, []string) {
+func splitTrailingCommentBlock(lines []string, commentPrefix string) ([]string, []string) {
 	if len(lines) == 0 {
 		return nil, nil
 	}
@@ -198,7 +202,7 @@ func splitTrailingCommentBlock(lines []string, commentChar string) ([]string, []
 	}
 
 	start := end
-	for start >= 0 && isCommentLine(lines[start], commentChar) {
+	for start >= 0 && isCommentLine(lines[start], commentPrefix) {
 		start--
 	}
 	if start == end {
@@ -210,8 +214,8 @@ func splitTrailingCommentBlock(lines []string, commentChar string) ([]string, []
 	return content, commentBlock
 }
 
-func isCommentLine(line, commentChar string) bool {
-	return commentChar != "" && strings.HasPrefix(line, commentChar)
+func isCommentLine(line, commentPrefix string) bool {
+	return commentPrefix != "" && strings.HasPrefix(line, commentPrefix)
 }
 
 func trimTrailingBlankLines(lines []string) []string {
@@ -231,6 +235,10 @@ func splitTrailerBlock(lines []string) ([]string, []trailerEntry) {
 	for start >= 0 && strings.TrimSpace(lines[start]) != "" {
 		start--
 	}
+	if start < 0 {
+		return append([]string(nil), lines...), nil
+	}
+
 	candidate := lines[start+1:]
 	entries, ok := parseTrailerEntries(candidate)
 	if !ok {
@@ -323,4 +331,87 @@ func (t trailerEntry) Value() string {
 		valueLines = append(valueLines, strings.TrimSpace(line))
 	}
 	return strings.Join(valueLines, "\n")
+}
+
+func inferAutoCommentPrefix(lines []string) string {
+	lines = trimTrailingBlankLines(lines)
+	if len(lines) == 0 {
+		return ""
+	}
+
+	start := len(lines) - 1
+	for start >= 0 && strings.TrimSpace(lines[start]) != "" {
+		start--
+	}
+
+	commentBlock := lines[start+1:]
+	prefix := sharedCommentPrefix(commentBlock)
+	if prefix == "" {
+		return ""
+	}
+	if start >= 0 || looksLikeGitTemplateBlock(commentBlock, prefix) {
+		return prefix
+	}
+	return ""
+}
+
+func sharedCommentPrefix(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	prefix := commentPrefixToken(lines[0])
+	if prefix == "" {
+		return ""
+	}
+
+	for _, line := range lines[1:] {
+		if commentPrefixToken(line) != prefix {
+			return ""
+		}
+	}
+	return prefix
+}
+
+func commentPrefixToken(line string) string {
+	token := line
+	if whitespaceIndex := strings.IndexFunc(line, unicode.IsSpace); whitespaceIndex >= 0 {
+		token = line[:whitespaceIndex]
+	}
+	if token == "" {
+		return ""
+	}
+	for _, r := range token {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return ""
+		}
+	}
+	return token
+}
+
+func looksLikeGitTemplateBlock(lines []string, prefix string) bool {
+	for _, line := range lines {
+		body := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		switch {
+		case strings.Contains(body, ">8"):
+			return true
+		case strings.HasPrefix(body, "Please enter the commit message"):
+			return true
+		case strings.HasPrefix(body, "Do not modify or remove the line above."):
+			return true
+		case strings.HasPrefix(body, "Everything below it will be ignored."):
+			return true
+		case strings.HasPrefix(body, "On branch "):
+			return true
+		case strings.HasPrefix(body, "Changes to be committed:"):
+			return true
+		case strings.HasPrefix(body, "Changes not staged for commit:"):
+			return true
+		case strings.HasPrefix(body, "Untracked files:"):
+			return true
+		case strings.HasPrefix(body, "diff --git "):
+			return true
+		}
+	}
+	return false
 }

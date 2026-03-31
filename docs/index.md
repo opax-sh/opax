@@ -91,6 +91,7 @@ Use it as the one-page status rollup across all epics and features.
 - [adrs/ADR-004-passive-capture.md](adrs/ADR-004-passive-capture.md)
 - [adrs/ADR-005-commit-anchored-data-model.md](adrs/ADR-005-commit-anchored-data-model.md)
 - [adrs/ADR-006-execution-drivers.md](adrs/ADR-006-execution-drivers.md)
+- [adrs/ADR-007-git-cli-boundary-for-hook-semantics.md](adrs/ADR-007-git-cli-boundary-for-hook-semantics.md)
 - [adrs/_template.md](adrs/_template.md)
 
 ### `misc/`

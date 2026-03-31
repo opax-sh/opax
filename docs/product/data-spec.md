@@ -12,6 +12,8 @@ This specification defines how Opax stores structured agent activity data as sta
 
 The spec uses five git primitives: orphan branches, commit trailers, git notes, custom refs, and annotated tags. Opax-owned branch/custom-ref/tag names stay under the `opax/` namespace, while Git-note refs live under `refs/notes/opax/` so they remain directly compatible with native `git notes`.
 
+Opax remains a single Go binary with no daemon or extra local services, but it assumes a standard Git environment. Git is the host platform for repository, hook, and commit lifecycle behavior.
+
 **Implementation snapshot note:** This document contains target-state sections for Phase 0+ plus current schema contracts. Where there is drift, current code-level contracts are defined by `internal/types` and current CLI surface in `cmd/opax/main.go`.
 
 ---
@@ -212,6 +214,8 @@ Plain `git push` does not push notes or `opax/v1` by default. During `opax init`
 ## 4. Commit Trailers
 
 Trailers are structured key-value pairs appended to commit messages. They are the **default mechanism** for linking commits to session archives. In Phase 0, a `prepare-commit-msg` hook allocates a fresh save ID and inserts the trailer before the commit is created, so the link is part of the commit hash — immutable and tamper-evident. A later post-commit flow reads the committed trailer and finalizes the save using the real commit hash.
+
+Hook-time trailer mutation follows native Git semantics instead of a broad pure-Go reimplementation. Opax keeps committed-object parsing and save-ID validation in Go, but the hook path may delegate trailer insertion/replacement to native Git so comment-char, template, and worktree config behavior stays aligned with Git itself.
 
 Trailers are added automatically by Opax hook setup during `opax init`. They can be disabled via `opax init --no-trailers` for teams that object to modified commit messages.
 

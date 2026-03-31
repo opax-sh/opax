@@ -11,7 +11,7 @@
 
 The project currently has only `cobra` in `go.mod`. Every downstream epic requires libraries for git operations, SQLite, ULID generation, YAML parsing, and MCP transport. These must be added and verified before any feature work begins.
 
-The overriding constraint is **pure Go, single binary, zero runtime dependencies**. Every dependency must compile with `CGO_ENABLED=0`. This rules out `mattn/go-sqlite3` and any library that shells out or links to C.
+The overriding constraint is **pure Go for the core build, single binary, no extra runtime services beyond a standard Git environment**. Every core library dependency must compile with `CGO_ENABLED=0`. This rules out `mattn/go-sqlite3` and C-linked libraries in the Opax binary, but it does not forbid narrow native-Git usage in hook-time paths where Git semantics are the product surface.
 
 ---
 
@@ -23,7 +23,7 @@ The overriding constraint is **pure Go, single binary, zero runtime dependencies
 
 **Used by:** E1 (Git Plumbing Layer) — orphan branch management, tree manipulation, ref updates, notes operations.
 
-**Why go-git:** Pure Go. Provides plumbing-level access (hash-object, mktree, commit-tree, update-ref) without touching the working tree. The alternative is shelling out to `git`, which is the fallback if go-git's tree manipulation proves too awkward for E1.3's write mechanics.
+**Why go-git:** Pure Go. Provides plumbing-level access (hash-object, mktree, commit-tree, update-ref) without touching the working tree. Native Git remains acceptable for narrow hook-time semantics where Opax intentionally follows Git behavior instead of reimplementing it, but go-git stays the default for core object/state access.
 
 **Smoke test:** Open an existing git repository via `git.PlainOpen()`, read HEAD, verify it returns a valid commit hash.
 

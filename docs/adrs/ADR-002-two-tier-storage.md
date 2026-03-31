@@ -25,7 +25,7 @@ Agent sessions produce both small metadata (IDs, timestamps, agent info) and lar
 
 ### Option C — External storage only (S3, etc.)
 - Pros: unlimited scale.
-- Cons: requires infrastructure. Loses zero-dependency local operation.
+- Cons: requires infrastructure. Loses single-binary local operation without extra services.
 
 ## Decision
 Option B. Metadata and references live in git on the `opax/v1` orphan branch. Bulk content lives in CAS at `.git/opax/content/`, referenced by SHA-256 hash. Threshold: inline in git below 4 KB, CAS at 4 KB and above.

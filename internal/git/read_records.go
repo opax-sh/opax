@@ -2,14 +2,10 @@ package git
 
 import (
 	"fmt"
-	"io"
 	pathpkg "path"
 	"strings"
 
-	ggit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/filemode"
-	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 // ReadRecord reads every file under one deterministic record root.
@@ -21,20 +17,43 @@ func ReadRecord(ctx *RepoContext, collection, recordID string) (*ReadResult, err
 		return nil, err
 	}
 
-	repo, branchTip, rootTree, err := resolveReadSnapshot(ctx)
+	backend, err := openRepoFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	branchTip, rootTreeHash, err := resolveReadSnapshot(backend)
 	if err != nil {
 		return nil, err
 	}
 
 	recordRoot := deriveRecordRoot(collection, recordID)
-	recordTree, err := resolveRecordRootTree(repo, rootTree, recordRoot)
+	recordTreeHash, err := resolveRecordRootTree(backend, rootTreeHash, recordRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make(map[string][]byte)
-	if err := collectRecordFiles(repo, recordTree, "", files, recordRoot); err != nil {
+	blobByPath := make(map[string]plumbing.Hash)
+	if err := collectRecordBlobHashes(backend, recordTreeHash, "", blobByPath, recordRoot); err != nil {
 		return nil, err
+	}
+
+	hashes := make([]plumbing.Hash, 0, len(blobByPath))
+	for _, hash := range blobByPath {
+		hashes = append(hashes, hash)
+	}
+	blobContents, err := backend.readBlobsBatch(hashes)
+	if err != nil {
+		return nil, err
+	}
+
+	files := make(map[string][]byte, len(blobByPath))
+	for path, hash := range blobByPath {
+		content, found := blobContents[hash]
+		if !found {
+			return nil, fmt.Errorf("git: read record root %q missing blob %s: %w", recordRoot, hash, ErrMalformedTree)
+		}
+		files[path] = content
 	}
 
 	return &ReadResult{
@@ -51,42 +70,52 @@ func ReadFileAtPath(ctx *RepoContext, path string) ([]byte, error) {
 		return nil, err
 	}
 
-	repo, _, rootTree, err := resolveReadSnapshot(ctx)
+	backend, err := openRepoFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	currentTree := rootTree
+	_, rootTreeHash, err := resolveReadSnapshot(backend)
+	if err != nil {
+		return nil, err
+	}
+
+	currentTreeHash := rootTreeHash
 	segments := strings.Split(cleanPath, "/")
 	for i, segment := range segments {
-		entry, found := findTreeEntryByName(currentTree.Entries, segment)
+		entries, err := backend.readTree(currentTreeHash)
+		if err != nil {
+			componentPath := strings.Join(segments[:i], "/")
+			if componentPath == "" {
+				componentPath = "."
+			}
+			return nil, fmt.Errorf("git: read file %q load tree %q (%s): %v: %w", cleanPath, componentPath, currentTreeHash, err, ErrMalformedTree)
+		}
+		entry, found := findTreeEntryByName(entries, segment)
 		if !found {
 			return nil, fmt.Errorf("git: read file %q: %w", cleanPath, ErrFileNotFound)
 		}
 
 		isLeaf := i == len(segments)-1
 		if isLeaf {
-			if entry.Mode == filemode.Dir {
+			if entryIsTree(entry) {
 				return nil, fmt.Errorf("git: read file %q resolves to directory: %w", cleanPath, ErrMalformedTree)
 			}
-			content, err := readBlobContent(repo, entry.Hash)
+			if !entryIsBlob(entry) {
+				return nil, fmt.Errorf("git: read file %q expected blob at %q: %w", cleanPath, cleanPath, ErrMalformedTree)
+			}
+			content, err := backend.readBlob(entry.Hash)
 			if err != nil {
 				return nil, fmt.Errorf("git: read file %q blob %s: %v: %w", cleanPath, entry.Hash, err, ErrMalformedTree)
 			}
 			return content, nil
 		}
 
-		if entry.Mode != filemode.Dir {
+		if !entryIsTree(entry) {
 			componentPath := strings.Join(segments[:i+1], "/")
 			return nil, fmt.Errorf("git: read file %q expected tree at %q: %w", cleanPath, componentPath, ErrMalformedTree)
 		}
-
-		nextTree, err := repo.TreeObject(entry.Hash)
-		if err != nil {
-			componentPath := strings.Join(segments[:i+1], "/")
-			return nil, fmt.Errorf("git: read file %q load tree %q (%s): %v: %w", cleanPath, componentPath, entry.Hash, err, ErrMalformedTree)
-		}
-		currentTree = nextTree
+		currentTreeHash = entry.Hash
 	}
 
 	return nil, fmt.Errorf("git: read file %q: %w", cleanPath, ErrFileNotFound)
@@ -98,25 +127,35 @@ func WalkRecords(ctx *RepoContext, visit func(locator RecordLocator) error) erro
 		return fmt.Errorf("git: walk records visitor is nil")
 	}
 
-	repo, branchTip, rootTree, err := resolveReadSnapshot(ctx)
+	backend, err := openRepoFromContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	for _, collectionEntry := range rootTree.Entries {
+	branchTip, rootTreeHash, err := resolveReadSnapshot(backend)
+	if err != nil {
+		return err
+	}
+
+	rootEntries, err := backend.readTree(rootTreeHash)
+	if err != nil {
+		return fmt.Errorf("git: walk records load root tree %s: %v: %w", rootTreeHash, err, ErrMalformedTree)
+	}
+
+	for _, collectionEntry := range rootEntries {
 		collection := collectionEntry.Name
 		if collection == "meta" {
 			continue
 		}
 
-		if collectionEntry.Mode != filemode.Dir {
+		if !entryIsTree(collectionEntry) {
 			return fmt.Errorf("git: walk records collection %q is not a tree: %w", collection, ErrMalformedTree)
 		}
 		if err := validateCollection(collection); err != nil {
 			return fmt.Errorf("git: walk records invalid collection %q: %w", collection, ErrMalformedTree)
 		}
 
-		collectionTree, err := repo.TreeObject(collectionEntry.Hash)
+		collectionEntries, err := backend.readTree(collectionEntry.Hash)
 		if err != nil {
 			return fmt.Errorf(
 				"git: walk records load collection tree %q (%s): %v: %w",
@@ -127,7 +166,7 @@ func WalkRecords(ctx *RepoContext, visit func(locator RecordLocator) error) erro
 			)
 		}
 
-		if err := walkCollectionRecords(repo, branchTip, collection, collectionTree, visit); err != nil {
+		if err := walkCollectionRecords(backend, branchTip, collection, collectionEntries, visit); err != nil {
 			return err
 		}
 	}
@@ -136,22 +175,22 @@ func WalkRecords(ctx *RepoContext, visit func(locator RecordLocator) error) erro
 }
 
 func walkCollectionRecords(
-	repo *ggit.Repository,
+	backend *nativeGitBackend,
 	branchTip plumbing.Hash,
 	collection string,
-	collectionTree *object.Tree,
+	collectionEntries []gitTreeEntry,
 	visit func(locator RecordLocator) error,
 ) error {
-	for _, shardEntry := range collectionTree.Entries {
+	for _, shardEntry := range collectionEntries {
 		shard := shardEntry.Name
-		if shardEntry.Mode != filemode.Dir {
+		if !entryIsTree(shardEntry) {
 			return fmt.Errorf("git: walk records shard %q/%q is not a tree: %w", collection, shard, ErrMalformedTree)
 		}
 		if !isRecordShard(shard) {
 			return fmt.Errorf("git: walk records shard %q/%q is invalid: %w", collection, shard, ErrMalformedTree)
 		}
 
-		shardTree, err := repo.TreeObject(shardEntry.Hash)
+		shardEntries, err := backend.readTree(shardEntry.Hash)
 		if err != nil {
 			return fmt.Errorf(
 				"git: walk records load shard tree %q/%q (%s): %v: %w",
@@ -163,9 +202,9 @@ func walkCollectionRecords(
 			)
 		}
 
-		for _, recordEntry := range shardTree.Entries {
+		for _, recordEntry := range shardEntries {
 			recordID := recordEntry.Name
-			if recordEntry.Mode != filemode.Dir {
+			if !entryIsTree(recordEntry) {
 				return fmt.Errorf(
 					"git: walk records record root %q/%q/%q is not a tree: %w",
 					collection,
@@ -187,16 +226,6 @@ func walkCollectionRecords(
 				)
 			}
 
-			if _, err := repo.TreeObject(recordEntry.Hash); err != nil {
-				return fmt.Errorf(
-					"git: walk records load record tree %q (%s): %v: %w",
-					recordRoot,
-					recordEntry.Hash,
-					err,
-					ErrMalformedTree,
-				)
-			}
-
 			if err := visit(RecordLocator{
 				BranchTip:  branchTip,
 				Collection: collection,
@@ -211,123 +240,82 @@ func walkCollectionRecords(
 	return nil
 }
 
-func resolveReadSnapshot(ctx *RepoContext) (*ggit.Repository, plumbing.Hash, *object.Tree, error) {
-	repo, err := openRepoFromContext(ctx)
+func resolveReadSnapshot(backend *nativeGitBackend) (plumbing.Hash, plumbing.Hash, error) {
+	branchTip, tipCommit, err := resolveValidatedOpaxBranchTip(backend)
 	if err != nil {
-		return nil, plumbing.ZeroHash, nil, err
+		return plumbing.ZeroHash, plumbing.ZeroHash, err
 	}
-
-	branchTip, tipCommit, err := resolveValidatedOpaxBranchTip(repo)
-	if err != nil {
-		return nil, plumbing.ZeroHash, nil, err
-	}
-
-	rootTree, err := tipCommit.Tree()
-	if err != nil {
-		return nil, plumbing.ZeroHash, nil, fmt.Errorf("git: read tree for opax branch tip %s: %w", branchTip, err)
-	}
-
-	return repo, branchTip, rootTree, nil
+	return branchTip, tipCommit.TreeHash, nil
 }
 
-func resolveRecordRootTree(repo *ggit.Repository, rootTree *object.Tree, recordRoot string) (*object.Tree, error) {
+func resolveRecordRootTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash, recordRoot string) (plumbing.Hash, error) {
 	segments := strings.Split(recordRoot, "/")
-	currentTree := rootTree
+	currentTreeHash := rootTreeHash
 	for i, segment := range segments {
-		entry, found := findTreeEntryByName(currentTree.Entries, segment)
-		if !found {
-			return nil, fmt.Errorf("git: read record root %q missing %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrRecordNotFound)
-		}
-		if entry.Mode != filemode.Dir {
-			return nil, fmt.Errorf("git: read record root %q expected tree at %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrMalformedTree)
-		}
-
-		nextTree, err := repo.TreeObject(entry.Hash)
+		entries, err := backend.readTree(currentTreeHash)
 		if err != nil {
-			return nil, fmt.Errorf(
+			return plumbing.ZeroHash, fmt.Errorf(
 				"git: read record root %q load tree %q (%s): %v: %w",
 				recordRoot,
-				strings.Join(segments[:i+1], "/"),
-				entry.Hash,
+				strings.Join(segments[:i], "/"),
+				currentTreeHash,
 				err,
 				ErrMalformedTree,
 			)
 		}
-		currentTree = nextTree
+
+		entry, found := findTreeEntryByName(entries, segment)
+		if !found {
+			return plumbing.ZeroHash, fmt.Errorf("git: read record root %q missing %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrRecordNotFound)
+		}
+		if !entryIsTree(entry) {
+			return plumbing.ZeroHash, fmt.Errorf("git: read record root %q expected tree at %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrMalformedTree)
+		}
+
+		currentTreeHash = entry.Hash
 	}
 
-	return currentTree, nil
+	return currentTreeHash, nil
 }
 
-func collectRecordFiles(
-	repo *ggit.Repository,
-	tree *object.Tree,
+func collectRecordBlobHashes(
+	backend *nativeGitBackend,
+	treeHash plumbing.Hash,
 	prefix string,
-	files map[string][]byte,
+	files map[string]plumbing.Hash,
 	recordRoot string,
 ) error {
-	for _, entry := range tree.Entries {
+	entries, err := backend.readTree(treeHash)
+	if err != nil {
+		return fmt.Errorf(
+			"git: read record root %q load subtree %q (%s): %v: %w",
+			recordRoot,
+			prefix,
+			treeHash,
+			err,
+			ErrMalformedTree,
+		)
+	}
+
+	for _, entry := range entries {
 		entryPath := entry.Name
 		if prefix != "" {
 			entryPath = pathpkg.Join(prefix, entryPath)
 		}
 
-		if entry.Mode == filemode.Dir {
-			childTree, err := repo.TreeObject(entry.Hash)
-			if err != nil {
-				return fmt.Errorf(
-					"git: read record root %q load subtree %q (%s): %v: %w",
-					recordRoot,
-					entryPath,
-					entry.Hash,
-					err,
-					ErrMalformedTree,
-				)
-			}
-			if err := collectRecordFiles(repo, childTree, entryPath, files, recordRoot); err != nil {
+		if entryIsTree(entry) {
+			if err := collectRecordBlobHashes(backend, entry.Hash, entryPath, files, recordRoot); err != nil {
 				return err
 			}
 			continue
 		}
-
-		content, err := readBlobContent(repo, entry.Hash)
-		if err != nil {
-			return fmt.Errorf(
-				"git: read record root %q load blob %q (%s): %v: %w",
-				recordRoot,
-				entryPath,
-				entry.Hash,
-				err,
-				ErrMalformedTree,
-			)
+		if !entryIsBlob(entry) {
+			return fmt.Errorf("git: read record root %q expected blob at %q (%s): %w", recordRoot, entryPath, entry.Hash, ErrMalformedTree)
 		}
-		files[entryPath] = content
+		files[entryPath] = entry.Hash
 	}
 
 	return nil
-}
-
-func readBlobContent(repo *ggit.Repository, hash plumbing.Hash) ([]byte, error) {
-	blob, err := repo.BlobObject(hash)
-	if err != nil {
-		return nil, err
-	}
-
-	reader, err := blob.Reader()
-	if err != nil {
-		return nil, err
-	}
-
-	content, readErr := io.ReadAll(reader)
-	closeErr := reader.Close()
-	if readErr != nil {
-		return nil, readErr
-	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-
-	return content, nil
 }
 
 func normalizeBranchReadPath(rawPath string) (string, error) {
@@ -366,4 +354,8 @@ func isRecordShard(shard string) bool {
 
 func isLowerHex(ch byte) bool {
 	return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')
+}
+
+func entryIsBlob(entry gitTreeEntry) bool {
+	return entry.Type == "blob"
 }

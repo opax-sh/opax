@@ -1,13 +1,12 @@
-// Package git provides plumbing-level git operations via go-git.
-// It handles orphan branch management, notes, trailers, and ref operations
-// for the Opax data layer without touching the working tree.
+// Package git provides plumbing-level git operations for the Opax data layer
+// without touching the working tree. Production transport uses native Git
+// commands behind typed helpers.
 package git
 
 import (
 	"errors"
 	"time"
 
-	ggit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
@@ -43,6 +42,8 @@ var (
 
 	// ErrNoteConflict indicates the namespace ref changed during note publication.
 	ErrNoteConflict = errors.New("git: note ref changed")
+
+	errReferenceChanged = errors.New("git: reference changed")
 )
 
 const (
@@ -64,13 +65,19 @@ const (
 	noteFanoutPrefixLen   = 2
 )
 
+const (
+	gitMinSupportedVersion = "2.30.0"
+	gitModeBlob            = "100644"
+	gitModeTree            = "040000"
+)
+
 type opaxBranchSentinel struct {
 	Branch        string `json:"branch"`
 	LayoutVersion int    `json:"layout_version"`
 	CreatedBy     string `json:"created_by"`
 }
 
-type refPublishBuilder func(repo *ggit.Repository, currentRef *plumbing.Reference) (*plumbing.Reference, error)
+type refPublishBuilder func(backend *nativeGitBackend, currentRef *plumbing.Reference) (*plumbing.Reference, error)
 
 // RecordFile is one file written under a deterministic record root.
 type RecordFile struct {

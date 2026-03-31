@@ -3,14 +3,10 @@ package git
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
-	ggit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	gitstorage "github.com/go-git/go-git/v5/storage"
-	fsstorage "github.com/go-git/go-git/v5/storage/filesystem"
 )
 
 func publishRefWithRetry(
@@ -24,21 +20,17 @@ func publishRefWithRetry(
 
 	var lastErr error
 	for attempt := 1; attempt <= maxRefPublishAttempts; attempt++ {
-		repo, err := openRepoFromContext(ctx)
+		backend, err := openRepoFromContext(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		currentRef, err := repo.Reference(refName, true)
+		currentRef, err := backend.readRef(refName)
 		if err != nil {
-			if errors.Is(err, plumbing.ErrReferenceNotFound) {
-				currentRef = nil
-			} else {
-				return nil, fmt.Errorf("git: read ref %s: %w", refName, err)
-			}
+			return nil, err
 		}
 
-		nextRef, err := build(repo, currentRef)
+		nextRef, err := build(backend, currentRef)
 		if err != nil {
 			return nil, err
 		}
@@ -49,9 +41,11 @@ func publishRefWithRetry(
 			return nil, fmt.Errorf("git: publish ref %s: builder returned %s", refName, nextRef.Name())
 		}
 
-		if err := publishReference(repo, nextRef, currentRef); err == nil {
+		err = publishReference(backend, nextRef, currentRef)
+		if err == nil {
 			return nextRef, nil
-		} else if errors.Is(err, gitstorage.ErrReferenceHasChanged) {
+		}
+		if errors.Is(err, errReferenceChanged) {
 			lastErr = err
 		} else {
 			return nil, fmt.Errorf("git: publish ref %s: %w", refName, err)
@@ -71,58 +65,44 @@ func publishRefWithRetry(
 	)
 }
 
-func publishReference(repo *ggit.Repository, nextRef, currentRef *plumbing.Reference) error {
-	if currentRef != nil {
-		return repo.Storer.CheckAndSetReference(nextRef, currentRef)
+func publishReference(backend *nativeGitBackend, nextRef, currentRef *plumbing.Reference) error {
+	if nextRef == nil {
+		return fmt.Errorf("git: publish ref: reference is nil")
 	}
-	return createReferenceIfAbsent(repo, nextRef)
+	if nextRef.Type() != plumbing.HashReference {
+		return fmt.Errorf("git: publish ref %s: unsupported reference type %s", nextRef.Name(), nextRef.Type())
+	}
+
+	var oldHash *plumbing.Hash
+	if currentRef != nil {
+		hash := currentRef.Hash()
+		oldHash = &hash
+	}
+	return backend.updateRefCAS(nextRef.Name(), nextRef.Hash(), oldHash)
 }
 
-func createReferenceIfAbsent(repo *ggit.Repository, ref *plumbing.Reference) error {
-	storage, ok := repo.Storer.(*fsstorage.Storage)
-	if !ok {
-		return fmt.Errorf("git: publish ref %s: unexpected repository storage type %T", ref.Name(), repo.Storer)
+func createReferenceIfAbsent(ctx *RepoContext, ref *plumbing.Reference) error {
+	if ref == nil {
+		return fmt.Errorf("git: publish ref: reference is nil")
+	}
+	if ref.Type() != plumbing.HashReference {
+		return fmt.Errorf("git: publish ref %s: unsupported reference type %s", ref.Name(), ref.Type())
 	}
 
-	content, err := refContent(ref)
+	backend, err := openRepoFromContext(ctx)
 	if err != nil {
 		return err
 	}
-
-	refPath := filepath.Join(storage.Filesystem().Root(), filepath.FromSlash(ref.Name().String()))
-	if err := os.MkdirAll(filepath.Dir(refPath), 0o755); err != nil {
-		return fmt.Errorf("git: publish ref %s: create parent directory: %w", ref.Name(), err)
-	}
-
-	refFile, err := os.OpenFile(refPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return gitstorage.ErrReferenceHasChanged
-		}
-		return fmt.Errorf("git: publish ref %s: create ref file: %w", ref.Name(), err)
-	}
-
-	if _, err := refFile.WriteString(content); err != nil {
-		_ = refFile.Close()
-		_ = os.Remove(refPath)
-		return fmt.Errorf("git: publish ref %s: write ref file: %w", ref.Name(), err)
-	}
-	if err := refFile.Close(); err != nil {
-		return fmt.Errorf("git: publish ref %s: close ref file: %w", ref.Name(), err)
-	}
-
-	return nil
+	zero := plumbing.ZeroHash
+	return backend.updateRefCAS(ref.Name(), ref.Hash(), &zero)
 }
 
-func refContent(ref *plumbing.Reference) (string, error) {
-	switch ref.Type() {
-	case plumbing.HashReference:
-		return fmt.Sprintf("%s\n", ref.Hash()), nil
-	case plumbing.SymbolicReference:
-		return fmt.Sprintf("ref: %s\n", ref.Target()), nil
-	default:
-		return "", fmt.Errorf("git: publish ref %s: unsupported reference type %s", ref.Name(), ref.Type())
-	}
+func isGitUpdateRefConflict(stderr string) bool {
+	lower := strings.ToLower(strings.TrimSpace(stderr))
+	return strings.Contains(lower, "cannot lock ref") &&
+		(strings.Contains(lower, "reference already exists") ||
+			strings.Contains(lower, "expected") ||
+			strings.Contains(lower, "is at"))
 }
 
 func refPublishBackoff(attempt int) time.Duration {

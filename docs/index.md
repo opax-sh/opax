@@ -30,6 +30,7 @@ Use it as the one-page status rollup across all epics and features.
 | FEAT-0009 | EPIC-0001 | Completed | [features/FEAT-0009-git-notes-operations.md](features/FEAT-0009-git-notes-operations.md)         |
 | FEAT-0010 | EPIC-0001 | Completed | [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md)     |
 | FEAT-0011 | EPIC-0001 | Backlog   | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)       |
+| FEAT-0012 | EPIC-0001 | In Progress | [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md) |
 
 
 ## Update Rules
@@ -77,6 +78,7 @@ Use it as the one-page status rollup across all epics and features.
 - [features/FEAT-0009-git-notes-operations.md](features/FEAT-0009-git-notes-operations.md)
 - [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md)
 - [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)
+- [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md)
 - [features/_template.md](features/_template.md)
 
 ### `architecture/`
@@ -92,6 +94,7 @@ Use it as the one-page status rollup across all epics and features.
 - [adrs/ADR-005-commit-anchored-data-model.md](adrs/ADR-005-commit-anchored-data-model.md)
 - [adrs/ADR-006-execution-drivers.md](adrs/ADR-006-execution-drivers.md)
 - [adrs/ADR-007-git-cli-boundary-for-hook-semantics.md](adrs/ADR-007-git-cli-boundary-for-hook-semantics.md)
+- [adrs/ADR-008-native-git-backend-adapter-for-internal-git.md](adrs/ADR-008-native-git-backend-adapter-for-internal-git.md)
 - [adrs/_template.md](adrs/_template.md)
 
 ### `misc/`

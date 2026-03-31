@@ -102,6 +102,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 | FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/notes/opax/`* with per-namespace CAS retry      | Mutable metadata layer                        |
 | FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
 | FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
+| FEAT-0012  | Native backend adapter migration | Make native Git the production backend transport behind a typed `internal/git` adapter | Preserve typed contracts while replacing transport |
 
 
 ---
@@ -116,7 +117,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 - inspect refs, commits, trees, and notes
 - write branch commits on `opax/v1`
 - parse committed commit message text for trailers
-- invoke native Git for hook-time trailer mutation when commit-message semantics must match Git
+- use the shared typed native backend adapter for production repository/object/ref transport
 - read and write Opax-specific git config values
 
 It may **not**:
@@ -240,7 +241,7 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 
 | Risk                                                                 | Impact      | Mitigation                                                                            |
 | -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| Tree mutation logic in go-git is awkward or incomplete               | High        | Keep a narrow internal fallback to shell plumbing with identical tests and semantics  |
+| Native backend command parsing/regression bugs                       | High        | Keep one typed adapter, enforce parity tests on reads/writes/notes/trailers, and fail closed on malformed output |
 | Worktree/common-dir resolution is mishandled                         | High        | Make `RepoContext` authoritative and test linked worktrees explicitly                 |
 | Stale-tip writes silently overwrite branch history                   | High        | Require compare-and-swap updates and explicit conflict errors                         |
 | Refspec config changes accidentally change plain `git push` behavior | High        | Store Opax explicit refspecs separately; never mutate `remote.<name>.push` in Phase 0 |
@@ -261,6 +262,7 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 - `FEAT-0009` can bootstrap missing notes refs and enumerate notes for rebuild
 - `FEAT-0010` inserts exactly one valid `Opax-Save` trailer and parses it back from commits
 - `FEAT-0011` preserves stealth default: plain `git fetch` and `git push` remain code-centric
+- `FEAT-0012` establishes native Git as the production transport with typed adapter-backed semantics
 - All git writes use machine identity `Opax <opax@local>`
 - No code in `internal/git/` checks out or modifies the working tree
 

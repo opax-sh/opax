@@ -10,7 +10,7 @@
 
 ## Goal
 
-Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/notes/opax/`*, support `Opax-Save` trailer parsing and insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
+Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/notes/opax/`*, support `Opax-Save` trailer parsing plus hook-time insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
 
 ## Why This Epic Matters
 
@@ -21,7 +21,7 @@ Everything in Phase 0 depends on trustworthy git plumbing. If this layer is slop
 - The materializer cannot claim rebuildability if branch reads are ambiguous or notes refs are inconsistent.
 - The trailer story collapses if save IDs are only created after the commit already exists.
 
-This is the riskiest Phase 0 epic because it combines custom git object manipulation, repo topology edge cases, and hook-driven commit lifecycle behavior.
+This is the riskiest Phase 0 epic because it combines custom git object manipulation, repo topology edge cases, and hook-driven commit lifecycle behavior. Git is also the host platform here, so the implementation boundary matters as much as the feature list.
 
 ---
 
@@ -49,7 +49,7 @@ Phase 0 uses the preallocation model selected during planning:
 Implications:
 
 - Aborted commits can leave unused `sav_` IDs; this is acceptable
-- `FEAT-0010` owns trailer text manipulation and parsing, not save creation
+- `FEAT-0010` owns save-ID preallocation and committed-trailer parsing, while hook-time trailer mutation follows native Git semantics
 - `FEAT-0026`, `FEAT-0048`, and `FEAT-0062` consume the preallocated save ID later
 
 ### 3. Direct Branch Reads Are Internal Primitives
@@ -115,7 +115,8 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 - open repositories
 - inspect refs, commits, trees, and notes
 - write branch commits on `opax/v1`
-- read and modify commit message text for trailers
+- parse committed commit message text for trailers
+- invoke native Git for hook-time trailer mutation when commit-message semantics must match Git
 - read and write Opax-specific git config values
 
 It may **not**:
@@ -190,6 +191,7 @@ No caller-supplied absolute paths, parent traversal, or unscoped tree edits.
 - valid `sav_` IDs only
 - replace-on-regenerate semantics for amend/rebase/cherry-pick/squash flows
 - parser helpers for existing commits and raw commit messages
+- hook-time trailer mutation is Git-owned; committed-message validation is Opax-owned
 
 ### Refspec Contract
 

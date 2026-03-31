@@ -2,7 +2,7 @@
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
 **Status:** Completed
-**Last synced:** 2026-03-31
+**Last synced:** 2026-03-30
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0002 (ID types)
 **Dependents:** E4 commit linkage, E8 save creation, E11 hook lifecycle
 
@@ -93,6 +93,16 @@ Reusing an old `Opax-Save` would point a new commit at the wrong future save, so
 - emit canonical spelling `Opax-Save` when inserting a trailer
 - validate the value with `types.SaveID.Validate()`
 - return an error when multiple matching save trailers exist or the value is not a valid `sav_` ID
+
+### Runtime Boundary
+
+Phase 0 uses a hybrid ownership model:
+
+- native Git owns hook-time trailer mutation
+- Go/go-git owns committed-object reads and save-trailer validation
+- no broader production shell-out boundary is implied by this feature
+
+CI pins a minimum Git version (`2.30.0`) for trailer integration suites to reduce environment drift. Locally, the Git-backed suites skip only when Git is unavailable.
 
 ### Aborted Commits
 

@@ -73,7 +73,17 @@ The previous compatibility framing focused on path-specific opens and fallback e
 - Recursive tree traversals and blob batch reads are handled through typed backend helpers.
 - "One subprocess per blob/tree" is treated as a backend design bug, not an acceptable steady state.
 
-### Migration order
+### Implementation Plan
+
+Defaults:
+
+- FEAT-0010 lands first as a clean trailer-only feature branch.
+- FEAT-0012 work continues on `FEAT-0012-native-git-backend-adapter`.
+- Rebase FEAT-0012 onto `main` only after FEAT-0010 lands.
+- No production dual-backend mode.
+- `go-git` may remain in tests temporarily, but not as the production semantics oracle.
+
+Execution order:
 
 1. discovery and repo context
 2. ref resolution + `opax/v1` bootstrap/validation
@@ -82,6 +92,34 @@ The previous compatibility framing focused on path-specific opens and fallback e
 5. record writes and notes publication
 6. trailer parsing from committed commits
 7. remove remaining production `go-git` transport usage from `internal/git`
+
+Phase gates:
+
+- Discovery and runtime gate:
+  - keep `DiscoverRepo` native-Git derived
+  - derive `RepoContext` from `rev-parse` facts
+  - enforce minimum supported Git version in one shared backend gate
+  - preserve linked-worktree, common-git-dir, and bare-repo behavior contracts
+- Ref and branch primitives:
+  - route ref reads and CAS updates through the typed backend
+  - migrate `EnsureOpaxBranch`, `GetOpaxBranchTip`, and `ValidateOpaxBranch`
+  - preserve sentinel validation, symbolic-ref rejection, and typed conflict behavior
+- Object read path and batch semantics:
+  - migrate commit/tree/blob reads to backend helpers
+  - keep batch-friendly tree walk/blob read behavior for hot paths
+  - treat subprocess-per-object loops as regressions
+- Record reads and walks:
+  - migrate `ReadRecord`, `ReadFileAtPath`, and `WalkRecords`
+  - preserve deterministic path derivation, typed not-found behavior, and malformed-tree errors
+- Record writes and notes:
+  - migrate write-tree/write-commit/write-ref flows behind the backend
+  - migrate notes read/write/list operations
+  - preserve CAS retry behavior, note conflict semantics, and namespace validation
+- Trailer commit reads and final cleanup:
+  - keep FEAT-0010 hook-time trailer mutation scoped to trailer semantics
+  - migrate committed trailer reads needed by FEAT-0012 onto the backend
+  - remove remaining production `go-git` transport usage from `internal/git`
+  - keep exported signatures unchanged
 
 ---
 
@@ -126,6 +164,11 @@ Verification commands:
 
 ## Notes
 
-- Detailed rollout sequencing lives in [`docs/tasks/FEAT-0012-native-git-backend-adapter-migration.md`](../tasks/FEAT-0012-native-git-backend-adapter-migration.md).
 - `go-git` may remain in tests as temporary fixture/scaffolding support, but not as the production semantics oracle.
 - This feature is a backend migration wave, not a per-feature shell-out fallback strategy.
+
+## Exit Criteria
+
+- production `internal/git` paths no longer depend on `go-git` repository open/read/write transport
+- FEAT-0010 trailer scope remains independent and already landed
+- FEAT-0012 docs, epic docs, ADRs, and `docs/index.md` stay synchronized with the current migration state

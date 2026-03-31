@@ -115,7 +115,7 @@ Each stage gets the previous stage's context from Opax memory. Context flows thr
 
 ### Repo-native product execution
 
-Team keeps its product intent in repo docs: strategy in `docs/product/`, scoped design in `docs/epics/` and `docs/features/`, task breakdowns in `docs/tasks/`, and execution on branches and PRs. An engineer or agent picks up a scoped task, works with prior session context, and updates the same git-backed record as implementation advances. Another engineer can clone the repo and recover both the plan and the execution trail without opening a separate PM tool.
+Team keeps its product intent in repo docs: strategy in `docs/product/`, scoped design and execution plans in `docs/epics/` and `docs/features/`, and execution on branches and PRs. An engineer or agent picks up a scoped task, works with prior session context, and updates the same git-backed record as implementation advances. Another engineer can clone the repo and recover both the plan and the execution trail without opening a separate PM tool.
 
 ### Audit trail
 

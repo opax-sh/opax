@@ -26,7 +26,9 @@ This feature does **not** create the save record itself.
 
 ### Scope
 
-`internal/git/` owns trailer text manipulation and trailer parsing. Hook installation, wrapper scripts, and post-commit orchestration belong to E11.
+`internal/git/` owns save-ID allocation and committed-trailer parsing. Hook installation, wrapper scripts, and post-commit orchestration belong to E11.
+
+`UpsertSaveTrailer` is a hook-time helper, not a general-purpose pure-Go commit-message normalizer. Opax keeps committed-object parsing and validation in Go, but trailer insertion/replacement follows native Git semantics so repo config, comment-char handling, and linked worktree behavior stay aligned with Git itself.
 
 ### Public API
 
@@ -54,24 +56,20 @@ Phase 0 uses one fixed canonical trailer key:
 `UpsertSaveTrailer` performs these steps:
 
 1. generate a new `sav_` ID via `AllocateSaveID`
-2. resolve the repository's active Git comment prefix from `ctx`, defaulting to `#` when unset and using conservative inference when `core.commentChar=auto` (preserve trailing blocks only when they clearly match Git template/scissor text)
-3. parse the existing commit message
-4. remove any existing save trailers using case-insensitive token matching
-5. insert exactly one canonical `Opax-Save: <new-id>` trailer
-6. preserve all non-Opax trailers, body text, and comment lines
-7. return the updated message plus the allocated save ID
+2. invoke native Git trailer rewriting in the discovered repository/worktree context from `ctx`
+3. replace any existing save trailer with a new canonical `Opax-Save: <new-id>` value
+4. rely on Git's own handling for trailer placement, comment/template blocks, `core.commentChar`, and linked-worktree config
+5. return the updated message plus the allocated save ID
 
 ### Placement Rules
 
-The helper should behave like a normal Git trailer writer for supported Phase 0 cases:
+The helper should behave like a normal Git trailer writer for Opax-managed hook flows:
 
 - keep the main body intact
-- only treat a trailing paragraph as trailers when it is separated from the preceding body by a blank line
-- maintain one blank line between body and trailer block when inserting trailers
 - preserve existing non-Opax trailer ordering
-- place the trailer after the body / existing trailer block and before the trailing commented template block
-- treat scissor/template lines that begin with the active comment prefix, including multi-character prefixes, as part of the preserved comment block
-- fail closed for `core.commentChar=auto`: if a trailing punctuation-prefixed paragraph does not look like a Git template block, keep it in the body and do not relocate it below the trailer
+- place the trailer according to native Git trailer semantics
+- honor repository/worktree config, including custom comment characters and linked-worktree config
+- treat ambiguous commit-message layouts as outside the broad pure-Go parity contract; Git owns hook-time message semantics
 
 ### Regeneration Rules
 
@@ -98,6 +96,18 @@ Reusing an old `Opax-Save` would point a new commit at the wrong future save, so
 
 ### Aborted Commits
 
+### Runtime Boundary
+
+Phase 0 uses a hybrid ownership model:
+
+- native Git owns hook-time trailer mutation
+- Go/go-git owns committed-object reads and save-trailer validation
+- no broader production shell-out boundary is implied by this feature
+
+CI pins a minimum Git version (`2.30.0`) for trailer integration suites to reduce environment drift. Locally, the Git-backed suites skip only when Git is unavailable.
+
+### Aborted Commits
+
 Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No cleanup or reuse mechanism is required.
 
 ---
@@ -107,8 +117,9 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 - **Existing `Opax-Save` trailer present** - remove and replace it with a new value
 - **Existing `opax-save` trailer present** - treat it as the same token and replace it with canonical `Opax-Save`
 - **Commented commit template** - preserve comments and insert the trailer above them
-- **Non-default `core.commentChar`** - preserve the comment block using the configured comment prefix, including multi-character values such as `//`
-- **`core.commentChar=auto`** - preserve only template/scissor-like trailing blocks; keep ambiguous punctuation-prefixed paragraphs in body text
+- **Non-default `core.commentChar`** - honor Git's configured comment prefix, including multi-character values such as `//`
+- **`core.commentChar=auto`** - follow native Git behavior instead of Opax-owned heuristics
+- **Linked worktree config** - honor worktree-local config by running trailer mutation in the discovered worktree context
 - **Commit message with other trailers** - preserve them; only rewrite `Opax-Save`
 - **Body text ending with `token: value` lines but no blank separator** - treat those lines as body text, not as an existing trailer block
 - **Malformed existing save ID** - replace during prepare phase; error during parse phase if reading an already committed message
@@ -120,9 +131,9 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 
 - `AllocateSaveID` returns valid `sav_` IDs
 - `UpsertSaveTrailer` inserts exactly one `Opax-Save` trailer into a plain commit message
-- `UpsertSaveTrailer` reads Git comment formatting rules from the repository context
-- `UpsertSaveTrailer` preserves native Git trailer visibility by keeping the blank-line separator before the trailer block
-- `UpsertSaveTrailer` preserves non-Opax trailers and comment blocks
+- `UpsertSaveTrailer` uses native Git trailer semantics in the discovered repository/worktree context
+- `UpsertSaveTrailer` preserves native Git trailer visibility and comment/template placement
+- `UpsertSaveTrailer` honors linked-worktree config for hook-time mutation
 - `UpsertSaveTrailer` replaces any existing save trailer with a new ID using case-insensitive token matching
 - `ParseSaveTrailer` parses exactly one valid trailer and rejects malformed or duplicate values
 - `ParseSaveTrailerFromCommit` reads the committed trailer from an existing commit object
@@ -132,24 +143,27 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 
 ## Test Plan
 
-| Test | What it verifies | Pass condition |
-|---|---|---|
-| `TestAllocateSaveID` | Save ID generation | Returns valid `sav_` ID |
-| `TestUpsertSaveTrailerPlainMessage` | Basic trailer insertion | Exactly one `Opax-Save` trailer added |
-| `TestUpsertSaveTrailerSubjectOnlyMessage` | Subject-only insertion | Adds a blank-separated trailer that native Git still parses |
-| `TestUpsertSaveTrailerReplacesExistingMixedCase` | Replace semantics | Mixed-case old trailer removed, canonical new one inserted |
-| `TestUpsertSaveTrailerPreservesOtherTrailers` | Trailer coexistence | Other trailers preserved verbatim |
-| `TestUpsertSaveTrailerTreatsUnseparatedTrailerLikeLinesAsBody` | Blank-line requirement | `token: value` body lines stay in the body when not blank-line-separated |
-| `TestUpsertSaveTrailerPreservesCommentBlockDefaultChar` | Default comment char handling | `#` comments preserved below trailer block |
-| `TestUpsertSaveTrailerPreservesCommentBlockCustomChar` | Custom comment char handling | Non-default comment block preserved below trailer block |
-| `TestUpsertSaveTrailerPreservesAutoCommentBlock` | Auto comment prefix handling | Inferred template prefix preserved below trailer block |
-| `TestUpsertSaveTrailerAutoKeepsTrailingMarkdownListInBody` | Auto inference fail-closed behavior | Trailing markdown bullets remain body text and trailer remains parseable |
-| `TestUpsertSaveTrailerAutoKeepsPunctuationParagraphInBody` | Auto inference fail-closed behavior | Trailing punctuation-prefixed non-template paragraphs remain body text |
-| `TestUpsertSaveTrailerPreservesCommentBlockMultiCharPrefix` | Multi-character comment prefix handling | Multi-character comment block preserved below trailer block |
-| `TestUpsertSaveTrailerHandlesScissors` | Scissor/template handling | Trailer inserted above preserved scissor block |
-| `TestParseSaveTrailerAbsent` | Missing trailer | Returns `(_, false, nil)` |
-| `TestParseSaveTrailerRequiresBlankSeparator` | Blank-line requirement on parse | Unseparated `Opax-Save` line is treated as body text |
-| `TestParseSaveTrailerMalformedValue` | Invalid trailer payload | Error |
-| `TestParseSaveTrailerDuplicateMixedCase` | Duplicate trailer detection | Error even with mixed token casing |
-| `TestParseSaveTrailerFromCommit` | Commit object parsing | Trailer read correctly from commit |
-| `TestUpsertSaveTrailerParseRoundTripSupportedMessages` | End-to-end invariant | `ParseSaveTrailer(UpsertSaveTrailer(...))` yields one valid save ID across representative supported message shapes |
+### Git-backed integration layer
+
+- `TestTrailerParityUpsertSaveTrailer`: native-Git rewrite parity for subject-only, subject+body, existing non-Opax trailers, mixed-case `opax-save` replacement, blank-line recognition, default/custom comment blocks, and scissor placement
+- `TestTrailerParityParseSaveTrailer`: parse parity for absent trailer, proper blank-separated trailer block, unseparated body text, and parse-output preservation of other trailers
+- `TestTrailerPolicyUpsertSaveTrailerUsesLinkedWorktreeConfig`: hook-time mutation honors worktree-local config instead of shared config only
+- each rewrite test reuses the Opax-generated `sav_` in the Git invocation and compares full message bytes
+
+### Drift Detector Layer (selected upstream-inspired cases)
+
+- `TestTrailerOracleDriftDetectors`: bodiless/no-trailing-newline, bodied/no-trailing-newline, replace-existing-while-preserving-others, and comment-template placement checks
+- keeps the list intentionally short/high-signal while catching semantic drift early
+
+### Opax Policy Layer
+
+- `TestTrailerPolicyAllocateSaveID`: generated IDs are valid `sav_` values
+- `TestTrailerPolicyParseSaveTrailerValidation`: malformed and duplicate save trailer errors are Opax-enforced
+- `TestTrailerPolicyCanonicalTokenSpellingOnInsert`: insertion always emits canonical `Opax-Save`
+- `TestTrailerPolicyParseSaveTrailerFromCommit` + `TestTrailerPolicyParseSaveTrailerFromCommitAppliesValidation`: read committed message and apply Opax validation
+- `TestTrailerPolicyAutoCommentCharFailClosedHeuristics`: body content remains intact on representative `core.commentChar=auto` inputs now that mutation follows native Git behavior
+
+### Upstream References
+
+- Git documentation: [`git interpret-trailers`](https://raw.githubusercontent.com/git/git/master/Documentation/git-interpret-trailers.adoc)
+- Upstream source of ported cases: [`t/t7513-interpret-trailers.sh`](https://raw.githubusercontent.com/git/git/master/t/t7513-interpret-trailers.sh)

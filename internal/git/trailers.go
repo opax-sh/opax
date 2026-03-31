@@ -1,18 +1,16 @@
 package git
 
 import (
+	"bytes"
 	"fmt"
+	"os/exec"
 	"strings"
-	"unicode"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/opax-sh/opax/internal/types"
 )
 
-const (
-	saveTrailerKey          = "Opax-Save"
-	defaultGitCommentPrefix = "#"
-)
+const saveTrailerKey = "Opax-Save"
 
 type trailerEntry struct {
 	Token string
@@ -24,48 +22,26 @@ func AllocateSaveID() types.SaveID {
 	return types.NewSaveID()
 }
 
-// UpsertSaveTrailer inserts one canonical save trailer into a commit message.
+// UpsertSaveTrailer rewrites a commit message using native Git trailer semantics.
+// This helper is intended for hook-time message mutation, where Git's own config
+// and trailer rules should be authoritative.
 func UpsertSaveTrailer(ctx *RepoContext, message []byte) ([]byte, types.SaveID, error) {
-	lines, hasTrailingNewline := splitMessageLines(message)
-	commentPrefix, err := resolveGitCommentPrefix(ctx, lines)
-	if err != nil {
-		return nil, "", err
+	if ctx == nil {
+		return nil, "", fmt.Errorf("git: upsert save trailer: repo context is nil")
 	}
-
-	contentLines, commentBlock := splitTrailingCommentBlock(lines, commentPrefix)
-	contentLines = trimTrailingBlankLines(contentLines)
-
-	bodyLines, existingTrailers := splitTrailerBlock(contentLines)
-	filteredTrailers := make([]trailerEntry, 0, len(existingTrailers)+1)
-	for _, entry := range existingTrailers {
-		if isSaveTrailerToken(entry.Token) {
-			continue
-		}
-		filteredTrailers = append(filteredTrailers, entry)
+	if strings.TrimSpace(ctx.GitDir) == "" {
+		return nil, "", fmt.Errorf("git: upsert save trailer: git dir is empty")
+	}
+	if strings.TrimSpace(ctx.WorkTreeRoot) == "" {
+		return nil, "", fmt.Errorf("git: upsert save trailer: worktree root is empty")
 	}
 
 	saveID := AllocateSaveID()
-	filteredTrailers = append(filteredTrailers, trailerEntry{
-		Token: saveTrailerKey,
-		Lines: []string{fmt.Sprintf("%s: %s", saveTrailerKey, saveID)},
-	})
-
-	var out []string
-	out = append(out, bodyLines...)
-	if len(bodyLines) > 0 && len(filteredTrailers) > 0 {
-		out = append(out, "")
+	updated, err := rewriteTrailersWithGit(ctx, message, fmt.Sprintf("%s: %s", saveTrailerKey, saveID))
+	if err != nil {
+		return nil, "", err
 	}
-	for _, entry := range filteredTrailers {
-		out = append(out, entry.Lines...)
-	}
-	if len(commentBlock) > 0 {
-		if len(out) > 0 {
-			out = append(out, "")
-		}
-		out = append(out, commentBlock...)
-	}
-
-	return joinMessageLines(out, hasTrailingNewline), saveID, nil
+	return updated, saveID, nil
 }
 
 // ParseSaveTrailer extracts one valid save trailer from a commit message.
@@ -125,31 +101,6 @@ func ParseSaveTrailerFromCommit(ctx *RepoContext, commitHash string) (types.Save
 	return saveID, ok, nil
 }
 
-func resolveGitCommentPrefix(ctx *RepoContext, lines []string) (string, error) {
-	repo, err := openRepoFromContext(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	cfg, err := repo.Config()
-	if err != nil {
-		return "", fmt.Errorf("git: read repository config: %w", err)
-	}
-
-	commentPrefix := strings.TrimSpace(cfg.Core.CommentChar)
-	switch {
-	case commentPrefix == "":
-		return defaultGitCommentPrefix, nil
-	case strings.EqualFold(commentPrefix, "auto"):
-		if inferredPrefix := inferAutoCommentPrefix(lines); inferredPrefix != "" {
-			return inferredPrefix, nil
-		}
-		return defaultGitCommentPrefix, nil
-	default:
-		return commentPrefix, nil
-	}
-}
-
 func normalizeCommitHash(commitHash string) (plumbing.Hash, error) {
 	trimmedHash := strings.TrimSpace(strings.ToLower(commitHash))
 	if !plumbing.IsHash(trimmedHash) {
@@ -173,49 +124,29 @@ func splitMessageLines(message []byte) ([]string, bool) {
 	return strings.Split(text, "\n"), hasTrailingNewline
 }
 
-func joinMessageLines(lines []string, trailingNewline bool) []byte {
-	if len(lines) == 0 {
-		if trailingNewline {
-			return []byte("\n")
+func rewriteTrailersWithGit(ctx *RepoContext, message []byte, trailer string) ([]byte, error) {
+	cmd := exec.Command(
+		"git",
+		"--git-dir", ctx.GitDir,
+		"--work-tree", ctx.WorkTreeRoot,
+		"interpret-trailers",
+		"--if-exists", "replace",
+		"--if-missing", "add",
+		"--trailer", trailer,
+	)
+	cmd.Stdin = bytes.NewReader(message)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return nil, fmt.Errorf("git: rewrite save trailer: %s: %w", strings.TrimSpace(stderr.String()), err)
 		}
-		return nil
+		return nil, fmt.Errorf("git: rewrite save trailer: %w", err)
 	}
-
-	text := strings.Join(lines, "\n")
-	if trailingNewline {
-		text += "\n"
-	}
-	return []byte(text)
-}
-
-func splitTrailingCommentBlock(lines []string, commentPrefix string) ([]string, []string) {
-	if len(lines) == 0 {
-		return nil, nil
-	}
-
-	end := len(lines) - 1
-	for end >= 0 && strings.TrimSpace(lines[end]) == "" {
-		end--
-	}
-	if end < 0 {
-		return nil, nil
-	}
-
-	start := end
-	for start >= 0 && isCommentLine(lines[start], commentPrefix) {
-		start--
-	}
-	if start == end {
-		return lines[:end+1], nil
-	}
-
-	content := trimTrailingBlankLines(lines[:start+1])
-	commentBlock := append([]string(nil), lines[start+1:]...)
-	return content, commentBlock
-}
-
-func isCommentLine(line, commentPrefix string) bool {
-	return commentPrefix != "" && strings.HasPrefix(line, commentPrefix)
+	return stdout.Bytes(), nil
 }
 
 func trimTrailingBlankLines(lines []string) []string {
@@ -331,90 +262,4 @@ func (t trailerEntry) Value() string {
 		valueLines = append(valueLines, strings.TrimSpace(line))
 	}
 	return strings.Join(valueLines, "\n")
-}
-
-func inferAutoCommentPrefix(lines []string) string {
-	lines = trimTrailingBlankLines(lines)
-	if len(lines) == 0 {
-		return ""
-	}
-
-	start := len(lines) - 1
-	for start >= 0 && strings.TrimSpace(lines[start]) != "" {
-		start--
-	}
-
-	commentBlock := lines[start+1:]
-	prefix := sharedCommentPrefix(commentBlock)
-	if prefix == "" {
-		return ""
-	}
-	// Fail closed for core.commentChar=auto. Only preserve a trailing block when
-	// it clearly matches Git's template/scissor text to avoid moving user body
-	// paragraphs below the trailer.
-	if looksLikeGitTemplateBlock(commentBlock, prefix) {
-		return prefix
-	}
-	return ""
-}
-
-func sharedCommentPrefix(lines []string) string {
-	if len(lines) == 0 {
-		return ""
-	}
-
-	prefix := commentPrefixToken(lines[0])
-	if prefix == "" {
-		return ""
-	}
-
-	for _, line := range lines[1:] {
-		if commentPrefixToken(line) != prefix {
-			return ""
-		}
-	}
-	return prefix
-}
-
-func commentPrefixToken(line string) string {
-	token := line
-	if whitespaceIndex := strings.IndexFunc(line, unicode.IsSpace); whitespaceIndex >= 0 {
-		token = line[:whitespaceIndex]
-	}
-	if token == "" {
-		return ""
-	}
-	for _, r := range token {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return ""
-		}
-	}
-	return token
-}
-
-func looksLikeGitTemplateBlock(lines []string, prefix string) bool {
-	for _, line := range lines {
-		body := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-		switch {
-		case strings.Contains(body, ">8"):
-			return true
-		case strings.HasPrefix(body, "Please enter the commit message"):
-			return true
-		case strings.HasPrefix(body, "Do not modify or remove the line above."):
-			return true
-		case strings.HasPrefix(body, "Everything below it will be ignored."):
-			return true
-		case strings.HasPrefix(body, "On branch "):
-			return true
-		case strings.HasPrefix(body, "Changes to be committed:"):
-			return true
-		case strings.HasPrefix(body, "Changes not staged for commit:"):
-			return true
-		case strings.HasPrefix(body, "Untracked files:"):
-			return true
-		case strings.HasPrefix(body, "diff --git "):
-			return true
-		}
-	}
-	return false
 }

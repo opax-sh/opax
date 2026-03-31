@@ -349,7 +349,10 @@ func inferAutoCommentPrefix(lines []string) string {
 	if prefix == "" {
 		return ""
 	}
-	if start >= 0 || looksLikeGitTemplateBlock(commentBlock, prefix) {
+	// Fail closed for core.commentChar=auto. Only preserve a trailing block when
+	// it clearly matches Git's template/scissor text to avoid moving user body
+	// paragraphs below the trailer.
+	if looksLikeGitTemplateBlock(commentBlock, prefix) {
 		return prefix
 	}
 	return ""

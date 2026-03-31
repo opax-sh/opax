@@ -54,7 +54,7 @@ Phase 0 uses one fixed canonical trailer key:
 `UpsertSaveTrailer` performs these steps:
 
 1. generate a new `sav_` ID via `AllocateSaveID`
-2. resolve the repository's active Git comment prefix from `ctx`, defaulting to `#` when unset and inferring the actual trailing template prefix from the message when `core.commentChar=auto`
+2. resolve the repository's active Git comment prefix from `ctx`, defaulting to `#` when unset and using conservative inference when `core.commentChar=auto` (preserve trailing blocks only when they clearly match Git template/scissor text)
 3. parse the existing commit message
 4. remove any existing save trailers using case-insensitive token matching
 5. insert exactly one canonical `Opax-Save: <new-id>` trailer
@@ -71,6 +71,7 @@ The helper should behave like a normal Git trailer writer for supported Phase 0 
 - preserve existing non-Opax trailer ordering
 - place the trailer after the body / existing trailer block and before the trailing commented template block
 - treat scissor/template lines that begin with the active comment prefix, including multi-character prefixes, as part of the preserved comment block
+- fail closed for `core.commentChar=auto`: if a trailing punctuation-prefixed paragraph does not look like a Git template block, keep it in the body and do not relocate it below the trailer
 
 ### Regeneration Rules
 
@@ -107,7 +108,7 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 - **Existing `opax-save` trailer present** - treat it as the same token and replace it with canonical `Opax-Save`
 - **Commented commit template** - preserve comments and insert the trailer above them
 - **Non-default `core.commentChar`** - preserve the comment block using the configured comment prefix, including multi-character values such as `//`
-- **`core.commentChar=auto`** - infer the actual trailing template prefix from the existing message and preserve that block above the inserted trailer
+- **`core.commentChar=auto`** - preserve only template/scissor-like trailing blocks; keep ambiguous punctuation-prefixed paragraphs in body text
 - **Commit message with other trailers** - preserve them; only rewrite `Opax-Save`
 - **Body text ending with `token: value` lines but no blank separator** - treat those lines as body text, not as an existing trailer block
 - **Malformed existing save ID** - replace during prepare phase; error during parse phase if reading an already committed message
@@ -142,6 +143,8 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 | `TestUpsertSaveTrailerPreservesCommentBlockDefaultChar` | Default comment char handling | `#` comments preserved below trailer block |
 | `TestUpsertSaveTrailerPreservesCommentBlockCustomChar` | Custom comment char handling | Non-default comment block preserved below trailer block |
 | `TestUpsertSaveTrailerPreservesAutoCommentBlock` | Auto comment prefix handling | Inferred template prefix preserved below trailer block |
+| `TestUpsertSaveTrailerAutoKeepsTrailingMarkdownListInBody` | Auto inference fail-closed behavior | Trailing markdown bullets remain body text and trailer remains parseable |
+| `TestUpsertSaveTrailerAutoKeepsPunctuationParagraphInBody` | Auto inference fail-closed behavior | Trailing punctuation-prefixed non-template paragraphs remain body text |
 | `TestUpsertSaveTrailerPreservesCommentBlockMultiCharPrefix` | Multi-character comment prefix handling | Multi-character comment block preserved below trailer block |
 | `TestUpsertSaveTrailerHandlesScissors` | Scissor/template handling | Trailer inserted above preserved scissor block |
 | `TestParseSaveTrailerAbsent` | Missing trailer | Returns `(_, false, nil)` |
@@ -149,3 +152,4 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 | `TestParseSaveTrailerMalformedValue` | Invalid trailer payload | Error |
 | `TestParseSaveTrailerDuplicateMixedCase` | Duplicate trailer detection | Error even with mixed token casing |
 | `TestParseSaveTrailerFromCommit` | Commit object parsing | Trailer read correctly from commit |
+| `TestUpsertSaveTrailerParseRoundTripSupportedMessages` | End-to-end invariant | `ParseSaveTrailer(UpsertSaveTrailer(...))` yields one valid save ID across representative supported message shapes |

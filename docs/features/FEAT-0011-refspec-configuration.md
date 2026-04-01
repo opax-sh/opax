@@ -1,7 +1,8 @@
 # FEAT-0011 - Refspec Configuration
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Backlog
+**Status:** In Progress
+**Last synced:** 2026-04-01
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0006 (Opax branch identity)
 **Dependents:** E9 `opax init`, future `opax pull` / `opax push`, E11 hook/setup validation
 

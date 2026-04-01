@@ -138,8 +138,8 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 
 | Checkpoint | Scope | Status | PR |
 | ---------- | ----- | ------ | -- |
-| A | Discovery and backend gate | In Progress | TBD |
-| B | Ref primitives and branch lifecycle | Planned | TBD |
+| A | Discovery and backend gate | Done | TBD |
+| B | Ref primitives and branch lifecycle | In Progress | TBD |
 | C | Object reads and batch behavior | Planned | TBD |
 | D | Record reads and walks | Planned | TBD |
 | E | Record writes and notes | Planned | TBD |

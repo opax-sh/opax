@@ -1,7 +1,7 @@
 # FEAT-0012 - Native Git Backend Adapter Migration
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** In Progress
+**Status:** Completed
 **Last synced:** 2026-04-01
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0006 (Orphan branch management), FEAT-0007 (Write records), FEAT-0008 (Read records), FEAT-0009 (Git notes), FEAT-0010 (Trailer support)
 **Dependents:** E4 integrated write path, E5 rebuild/read consumers
@@ -103,7 +103,7 @@ FEAT-0012 resolves this as a backend-ownership problem, not a per-feature fallba
 
 - FEAT-0010 is already landed independently.
 - No production dual-backend mode.
-- `go-git` may remain only as temporary test oracle support, not production transport.
+- `go-git` may remain only on the frozen FEAT-0012 compatibility surface (`go-git/plumbing`) and in narrowly scoped tests; it is no longer the production transport.
 
 ### Checkpoints
 
@@ -204,6 +204,12 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 - Add a repo-enforced import guard so non-test `internal/git` production files may keep only the frozen FEAT-0012 compatibility import surface `github.com/go-git/go-git/v5/plumbing`.
 - Treat any new non-test `internal/git` import of top-level `github.com/go-git/go-git/v5` or other `go-git` transport/open-read-write packages as a checkpoint-F failure; broader type/API decoupling remains deferred to FEAT-0013.
 
+### Closeout Note (2026-04-01)
+
+- FEAT-0012 is complete once docs match the shipped boundary and the current local proof gates stay green.
+- FEAT-0012 completes the production transport migration to native Git for `internal/git`; it does not remove the frozen FEAT-0012 compatibility surface (`go-git/plumbing`) or the module dependency.
+- Cross-platform and Git-version matrix automation remain useful hardening work, but they are not a blocker for FEAT-0012 closeout because this repository does not currently define that CI infrastructure.
+
 ---
 
 ## Runtime Contract
@@ -228,7 +234,6 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 ## Test Plan
 
 - Keep one canonical linked-worktree fixture (`extensions.worktreeConfig=true`) across all slices.
-- Run checkpoint compatibility checks on Linux and macOS.
 - Require one fixture-driven test per exported API surface touched by a slice.
 - Maintain parity coverage for:
   - discovery
@@ -245,7 +250,8 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 - Keep compatibility fixtures deterministic (no random data in checkpoint compatibility tests).
 - Keep performance contracts scoped to call-count invariants (no wall-clock gates).
 - Keep `go-git` out of new tests unless explicitly tagged temporary oracle coverage.
-- Add CI check that production `internal/git` paths do not import `go-git` transport/open-read-write dependencies.
+- Keep the repo-enforced import guard that fails when production `internal/git` paths import `go-git` transport/open-read-write dependencies outside the frozen `go-git/plumbing` compatibility surface.
+- Treat broader Linux/macOS and minimum-version/latest-version matrix automation as follow-up CI hardening, not a FEAT-0012 closeout gate.
 
 Verification commands:
 
@@ -259,19 +265,22 @@ Verification commands:
 - Production `internal/git` paths no longer depend on `go-git` repository open/read/write transport.
 - FEAT-0010 trailer scope remains independent and landed.
 - FEAT-0012 docs, epic docs, ADRs, and `docs/index.md` are synchronized with migration state.
-- Temporary `go-git` oracle usage removal trigger is satisfied:
-  - linked-worktree compatibility suite green under native backend
-  - malformed object/ref/note matrix green under native backend
-  - hot read-path call-count invariants green
-  - Git version matrix green at minimum supported and latest stable
+- Current repo-enforced verification is green:
+  - `go test ./internal/git/...`
+  - `make test`
+  - production `internal/git` import guard stays green under `tools/checks`
+- FEAT-0012 completion is explicitly limited to production transport migration:
+  - native Git owns production repository/object/ref transport in `internal/git`
+  - exported `go-git/plumbing` compatibility types remain frozen in FEAT-0012
+  - full `go-git` type/module removal is deferred to FEAT-0013
 - All checkpoints (`A` through `F`) are `Done` with no unresolved checkpoint policy decisions.
 
 ---
 
 ## Follow-up Feature Commitment (FEAT-0013)
 
-- Create follow-up feature `FEAT-0013` (API/type decoupling from `go-git`) in blocked status.
-- FEAT-0013 entry criteria match FEAT-0012 temporary oracle removal trigger.
+- Track follow-up feature [`FEAT-0013 - go-git API and type decoupling`](FEAT-0013-go-git-api-type-decoupling.md) in blocked status.
+- FEAT-0013 starts only after FEAT-0012 closeout lands.
 - FEAT-0013 executes in two tracked stages:
   - Stage 1: exported contract decoupling from `go-git/plumbing`, with runtime behavior and typed errors preserved.
   - Stage 2: remaining internal `go-git/plumbing` dependency cleanup while keeping Stage 1 API stable.

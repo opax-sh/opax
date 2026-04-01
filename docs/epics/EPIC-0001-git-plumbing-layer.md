@@ -103,6 +103,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 | FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
 | FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
 | FEAT-0012  | Native backend adapter migration | Make native Git the production backend transport behind a typed `internal/git` adapter | Checkpointed slices A-F with canonical-fixture CI gates; preserve typed contracts during transport swap |
+| FEAT-0013  | go-git API and type decoupling | Remove the frozen FEAT-0012 `go-git` compatibility surface in two stages         | Blocked until FEAT-0012 closeout is merged    |
 
 
 ---
@@ -118,7 +119,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 - write branch commits on `opax/v1`
 - parse committed commit message text for trailers
 - use the shared typed native backend adapter for production repository/object/ref transport
-- keep exported `go-git` surface types stable during FEAT-0012 (decoupling is a follow-up feature)
+- keep exported `go-git` surface types stable through FEAT-0012 closeout; FEAT-0013 owns the decoupling follow-up
 - read and write Opax-specific git config values
 
 It may **not**:

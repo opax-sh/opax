@@ -106,18 +106,6 @@ CI pins a minimum Git version (`2.30.0`) for trailer integration suites to reduc
 
 ### Aborted Commits
 
-### Runtime Boundary
-
-Phase 0 uses a hybrid ownership model:
-
-- native Git owns hook-time trailer mutation
-- Go/go-git owns committed-object reads and save-trailer validation
-- no broader production shell-out boundary is implied by this feature
-
-CI pins a minimum Git version (`2.30.0`) for trailer integration suites to reduce environment drift. Locally, the Git-backed suites skip only when Git is unavailable.
-
-### Aborted Commits
-
 Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No cleanup or reuse mechanism is required.
 
 ---

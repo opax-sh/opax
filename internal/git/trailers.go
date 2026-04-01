@@ -124,11 +124,7 @@ func rewriteTrailersWithGit(ctx *RepoContext, message []byte, trailer string) ([
 		"--trailer", trailer,
 	)
 	if err != nil {
-		stderrText := strings.TrimSpace(string(stderr))
-		if stderrText != "" {
-			return nil, fmt.Errorf("git: rewrite save trailer: %s: %w", stderrText, err)
-		}
-		return nil, fmt.Errorf("git: rewrite save trailer: %w", err)
+		return nil, wrapGitStderrError("git: rewrite save trailer", stderr, err)
 	}
 	return stdout, nil
 }
@@ -146,11 +142,7 @@ func parseTrailersWithGit(ctx *RepoContext, message []byte) ([]string, error) {
 
 	stdout, stderr, err := runGitWithContextCapture(ctx, message, args...)
 	if err != nil {
-		stderrText := strings.TrimSpace(string(stderr))
-		if stderrText != "" {
-			return nil, fmt.Errorf("git: parse trailers: %s: %w", stderrText, err)
-		}
-		return nil, fmt.Errorf("git: parse trailers: %w", err)
+		return nil, wrapGitStderrError("git: parse trailers", stderr, err)
 	}
 
 	output := strings.ReplaceAll(string(stdout), "\r\n", "\n")

@@ -3,7 +3,6 @@ package git
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -14,8 +13,15 @@ func DiscoverRepo(startDir string) (*RepoContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	runtime, err := newGitCommandRuntime()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSupportedGitVersion(runtime.binaryPath); err != nil {
+		return nil, err
+	}
 
-	gitDir, commonGitDir, isBare, err := discoverRepoCore(resolvedStart)
+	gitDir, commonGitDir, isBare, err := discoverRepoCore(runtime, resolvedStart)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +29,7 @@ func DiscoverRepo(startDir string) (*RepoContext, error) {
 		return nil, ErrBareRepo
 	}
 
-	workTreeRoot, err := discoverWorkTreeRoot(resolvedStart)
+	workTreeRoot, err := discoverWorkTreeRoot(runtime, resolvedStart)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +74,8 @@ func normalizeExistingDir(path, label string) (string, error) {
 	return filepath.Clean(resolvedPath), nil
 }
 
-func discoverRepoCore(startDir string) (gitDir string, commonGitDir string, isBare bool, err error) {
-	stdout, stderr, runErr := runGitFromDirCapture(startDir,
+func discoverRepoCore(runtime *gitCommandRuntime, startDir string) (gitDir string, commonGitDir string, isBare bool, err error) {
+	stdout, stderr, runErr := runGitFromDirCapture(runtime, startDir,
 		"rev-parse",
 		"--path-format=absolute",
 		"--absolute-git-dir",
@@ -83,7 +89,11 @@ func discoverRepoCore(startDir string) (gitDir string, commonGitDir string, isBa
 		if isNotGitRepository(stderr) {
 			return "", "", false, ErrNotGitRepo
 		}
-		return "", "", false, fmt.Errorf("git: discover repository from %s: %s: %w", startDir, strings.TrimSpace(string(stderr)), runErr)
+		return "", "", false, wrapGitStderrError(
+			fmt.Sprintf("git: discover repository from %s", startDir),
+			stderr,
+			runErr,
+		)
 	}
 
 	lines := splitNonEmptyLines(stdout)
@@ -108,8 +118,9 @@ func discoverRepoCore(startDir string) (gitDir string, commonGitDir string, isBa
 	return resolvedGitDir, resolvedCommonGitDir, bareRaw == "true", nil
 }
 
-func discoverWorkTreeRoot(startDir string) (string, error) {
+func discoverWorkTreeRoot(runtime *gitCommandRuntime, startDir string) (string, error) {
 	stdout, stderr, err := runGitFromDirCapture(
+		runtime,
 		startDir,
 		"rev-parse",
 		"--path-format=absolute",
@@ -119,7 +130,11 @@ func discoverWorkTreeRoot(startDir string) (string, error) {
 		if isNotGitRepository(stderr) {
 			return "", ErrNotGitRepo
 		}
-		return "", fmt.Errorf("git: discover worktree root from %s: %s: %w", startDir, strings.TrimSpace(string(stderr)), err)
+		return "", wrapGitStderrError(
+			fmt.Sprintf("git: discover worktree root from %s", startDir),
+			stderr,
+			err,
+		)
 	}
 
 	line := strings.TrimSpace(string(stdout))
@@ -129,12 +144,12 @@ func discoverWorkTreeRoot(startDir string) (string, error) {
 	return normalizeExistingDir(line, "worktree root")
 }
 
-func runGitFromDirCapture(dir string, args ...string) ([]byte, []byte, error) {
+func runGitFromDirCapture(runtime *gitCommandRuntime, dir string, args ...string) ([]byte, []byte, error) {
+	if runtime == nil {
+		return nil, nil, fmt.Errorf("git: runtime is nil")
+	}
 	gitArgs := append([]string{"-C", dir}, args...)
-	cmd := exec.Command("git", gitArgs...)
-
-	stdout, stderr, err := runCommandCapture(cmd, nil)
-	return stdout, stderr, err
+	return runtime.runCapture("", nil, nil, gitArgs...)
 }
 
 func isNotGitRepository(stderr []byte) bool {

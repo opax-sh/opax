@@ -17,7 +17,8 @@ import (
 )
 
 type nativeGitBackend struct {
-	ctx *RepoContext
+	ctx     *RepoContext
+	runtime *gitCommandRuntime
 }
 
 type gitCommit struct {
@@ -66,7 +67,14 @@ func newNativeGitBackend(ctx *RepoContext) (*nativeGitBackend, error) {
 	if err := ensureExistingDir(ctx.WorkTreeRoot, "worktree root"); err != nil {
 		return nil, err
 	}
-	return &nativeGitBackend{ctx: ctx}, nil
+	runtime, err := newGitCommandRuntime()
+	if err != nil {
+		return nil, err
+	}
+	return &nativeGitBackend{
+		ctx:     ctx,
+		runtime: runtime,
+	}, nil
 }
 
 func ensureExistingDir(path, label string) error {
@@ -84,27 +92,10 @@ func ensureExistingDir(path, label string) error {
 }
 
 func (b *nativeGitBackend) ensureSupportedGitVersion() error {
-	stdout, stderr, err := runStandaloneGitCapture(nil, "version")
-	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return fmt.Errorf("git: check git version: %s: %w", strings.TrimSpace(string(stderr)), err)
-		}
-		return fmt.Errorf("git: check git version: %w", err)
+	if b == nil || b.runtime == nil {
+		return fmt.Errorf("git: runtime is nil")
 	}
-
-	version, parseErr := parseGitVersion(string(stdout))
-	if parseErr != nil {
-		return fmt.Errorf("git: check git version: %w", parseErr)
-	}
-	minimum, parseErr := parseGitVersion("git version " + gitMinSupportedVersion)
-	if parseErr != nil {
-		return fmt.Errorf("git: check git version minimum: %w", parseErr)
-	}
-	if versionLessThan(version, minimum) {
-		return fmt.Errorf("git: installed git %s is below minimum supported %s", version, minimum)
-	}
-
-	return nil
+	return ensureSupportedGitVersion(b.runtime.binaryPath)
 }
 
 func parseGitVersion(raw string) (gitVersion, error) {
@@ -171,9 +162,7 @@ func versionLessThan(left, right gitVersion) bool {
 
 func (b *nativeGitBackend) command(args ...string) *exec.Cmd {
 	gitArgs := append([]string{"--git-dir", b.ctx.GitDir, "--work-tree", b.ctx.WorkTreeRoot}, args...)
-	cmd := exec.Command("git", gitArgs...)
-	cmd.Dir = b.ctx.WorkTreeRoot
-	return cmd
+	return b.runtime.command(b.ctx.WorkTreeRoot, nil, gitArgs...)
 }
 
 func (b *nativeGitBackend) runCapture(stdin []byte, args ...string) ([]byte, []byte, error) {
@@ -184,10 +173,7 @@ func (b *nativeGitBackend) runCapture(stdin []byte, args ...string) ([]byte, []b
 func (b *nativeGitBackend) readRef(refName plumbing.ReferenceName) (*plumbing.Reference, error) {
 	stdout, stderr, err := b.runCapture(nil, "for-each-ref", "--format=%(objectname)", "--", refName.String())
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return nil, fmt.Errorf("git: read ref %s: %s: %w", refName, strings.TrimSpace(string(stderr)), err)
-		}
-		return nil, fmt.Errorf("git: read ref %s: %w", refName, err)
+		return nil, wrapGitStderrError(fmt.Sprintf("git: read ref %s", refName), stderr, err)
 	}
 
 	lines := splitNonEmptyLines(stdout)
@@ -220,10 +206,7 @@ func (b *nativeGitBackend) isSymbolicRef(refName plumbing.ReferenceName) (bool, 
 		return false, "", nil
 	}
 
-	if strings.TrimSpace(string(stderr)) != "" {
-		return false, "", fmt.Errorf("git: resolve symbolic ref %s: %s: %w", refName, strings.TrimSpace(string(stderr)), err)
-	}
-	return false, "", fmt.Errorf("git: resolve symbolic ref %s: %w", refName, err)
+	return false, "", wrapGitStderrError(fmt.Sprintf("git: resolve symbolic ref %s", refName), stderr, err)
 }
 
 func (b *nativeGitBackend) updateRefCAS(refName plumbing.ReferenceName, newHash plumbing.Hash, oldHash *plumbing.Hash) error {
@@ -243,14 +226,11 @@ func (b *nativeGitBackend) updateRefCAS(refName plumbing.ReferenceName, newHash 
 		return nil
 	}
 
-	stderrText := strings.TrimSpace(string(stderr))
+	stderrText := normalizeGitStderr(stderr)
 	if isGitUpdateRefConflict(stderrText) {
 		return errReferenceChanged
 	}
-	if stderrText != "" {
-		return fmt.Errorf("git: update ref %s: %s: %w", refName, stderrText, err)
-	}
-	return fmt.Errorf("git: update ref %s: %w", refName, err)
+	return wrapGitStderrError(fmt.Sprintf("git: update ref %s", refName), stderr, err)
 }
 
 func (b *nativeGitBackend) ensureCommitExists(hash plumbing.Hash) error {
@@ -267,14 +247,11 @@ func (b *nativeGitBackend) ensureCommitExists(hash plumbing.Hash) error {
 func (b *nativeGitBackend) objectType(spec string) (string, error) {
 	stdout, stderr, err := b.runCapture(nil, "cat-file", "-t", spec)
 	if err != nil {
-		stderrText := strings.TrimSpace(string(stderr))
+		stderrText := normalizeGitStderr(stderr)
 		if isGitObjectNotFound(stderrText) {
 			return "", os.ErrNotExist
 		}
-		if stderrText != "" {
-			return "", fmt.Errorf("git: object type %s: %s: %w", spec, stderrText, err)
-		}
-		return "", fmt.Errorf("git: object type %s: %w", spec, err)
+		return "", wrapGitStderrError(fmt.Sprintf("git: object type %s", spec), stderr, err)
 	}
 
 	typ := strings.TrimSpace(string(stdout))
@@ -310,10 +287,7 @@ func (b *nativeGitBackend) readCommit(hash plumbing.Hash) (*gitCommit, error) {
 
 	stdout, stderr, err := b.runCapture(nil, "show", "-s", "--format=%T%x00%P%x00%B", "--no-patch", hash.String())
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return nil, fmt.Errorf("git: read commit %s: %s: %w", hash, strings.TrimSpace(string(stderr)), err)
-		}
-		return nil, fmt.Errorf("git: read commit %s: %w", hash, err)
+		return nil, wrapGitStderrError(fmt.Sprintf("git: read commit %s", hash), stderr, err)
 	}
 
 	parts := bytes.SplitN(stdout, []byte{0}, 3)
@@ -351,10 +325,7 @@ func (b *nativeGitBackend) readCommit(hash plumbing.Hash) (*gitCommit, error) {
 func (b *nativeGitBackend) readBlob(hash plumbing.Hash) ([]byte, error) {
 	stdout, stderr, err := b.runCapture(nil, "cat-file", "blob", hash.String())
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return nil, fmt.Errorf("git: read blob %s: %s: %w", hash, strings.TrimSpace(string(stderr)), err)
-		}
-		return nil, fmt.Errorf("git: read blob %s: %w", hash, err)
+		return nil, wrapGitStderrError(fmt.Sprintf("git: read blob %s", hash), stderr, err)
 	}
 	return stdout, nil
 }
@@ -363,14 +334,11 @@ func (b *nativeGitBackend) readBlobAtPath(commitHash plumbing.Hash, path string)
 	spec := fmt.Sprintf("%s:%s", commitHash, path)
 	stdout, stderr, err := b.runCapture(nil, "cat-file", "blob", spec)
 	if err != nil {
-		stderrText := strings.TrimSpace(string(stderr))
+		stderrText := normalizeGitStderr(stderr)
 		if isGitObjectNotFound(stderrText) {
 			return nil, os.ErrNotExist
 		}
-		if stderrText != "" {
-			return nil, fmt.Errorf("git: read blob %s: %s: %w", spec, stderrText, err)
-		}
-		return nil, fmt.Errorf("git: read blob %s: %w", spec, err)
+		return nil, wrapGitStderrError(fmt.Sprintf("git: read blob %s", spec), stderr, err)
 	}
 	return stdout, nil
 }
@@ -378,10 +346,7 @@ func (b *nativeGitBackend) readBlobAtPath(commitHash plumbing.Hash, path string)
 func (b *nativeGitBackend) readTree(hash plumbing.Hash) ([]gitTreeEntry, error) {
 	stdout, stderr, err := b.runCapture(nil, "ls-tree", "-z", hash.String())
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return nil, fmt.Errorf("git: read tree %s: %s: %w", hash, strings.TrimSpace(string(stderr)), err)
-		}
-		return nil, fmt.Errorf("git: read tree %s: %w", hash, err)
+		return nil, wrapGitStderrError(fmt.Sprintf("git: read tree %s", hash), stderr, err)
 	}
 	entries, parseErr := parseLsTreeEntries(stdout)
 	if parseErr != nil {
@@ -393,10 +358,7 @@ func (b *nativeGitBackend) readTree(hash plumbing.Hash) ([]gitTreeEntry, error) 
 func (b *nativeGitBackend) readTreeRecursive(hash plumbing.Hash) ([]gitTreePathEntry, error) {
 	stdout, stderr, err := b.runCapture(nil, "ls-tree", "-r", "-t", "-z", hash.String())
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return nil, fmt.Errorf("git: read tree recursive %s: %s: %w", hash, strings.TrimSpace(string(stderr)), err)
-		}
-		return nil, fmt.Errorf("git: read tree recursive %s: %w", hash, err)
+		return nil, wrapGitStderrError(fmt.Sprintf("git: read tree recursive %s", hash), stderr, err)
 	}
 	entries, parseErr := parseLsTreePathEntries(stdout)
 	if parseErr != nil {
@@ -428,10 +390,7 @@ func (b *nativeGitBackend) readBlobsBatch(hashes []plumbing.Hash) (map[plumbing.
 
 	stdout, stderr, err := b.runCapture(stdin.Bytes(), "cat-file", "--batch")
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return nil, fmt.Errorf("git: batch read blobs: %s: %w", strings.TrimSpace(string(stderr)), err)
-		}
-		return nil, fmt.Errorf("git: batch read blobs: %w", err)
+		return nil, wrapGitStderrError("git: batch read blobs", stderr, err)
 	}
 
 	result := make(map[plumbing.Hash][]byte, len(unique))
@@ -482,10 +441,7 @@ func (b *nativeGitBackend) readBlobsBatch(hashes []plumbing.Hash) (map[plumbing.
 func (b *nativeGitBackend) writeBlob(data []byte) (plumbing.Hash, error) {
 	stdout, stderr, err := b.runCapture(data, "hash-object", "-w", "--stdin")
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return plumbing.ZeroHash, fmt.Errorf("git: write blob: %s: %w", strings.TrimSpace(string(stderr)), err)
-		}
-		return plumbing.ZeroHash, fmt.Errorf("git: write blob: %w", err)
+		return plumbing.ZeroHash, wrapGitStderrError("git: write blob", stderr, err)
 	}
 	return parseHash(strings.TrimSpace(string(stdout)))
 }
@@ -533,10 +489,7 @@ func (b *nativeGitBackend) writeTree(entries []gitTreeEntry) (plumbing.Hash, err
 
 	stdout, stderr, err := b.runCapture(input.Bytes(), "mktree", "-z")
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return plumbing.ZeroHash, fmt.Errorf("git: write tree: %s: %w", strings.TrimSpace(string(stderr)), err)
-		}
-		return plumbing.ZeroHash, fmt.Errorf("git: write tree: %w", err)
+		return plumbing.ZeroHash, wrapGitStderrError("git: write tree", stderr, err)
 	}
 	return parseHash(strings.TrimSpace(string(stdout)))
 }
@@ -573,21 +526,18 @@ func (b *nativeGitBackend) writeCommit(req gitCommitWriteRequest) (plumbing.Hash
 	args = append(args, "-m", req.Message)
 
 	cmd := b.command(args...)
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME="+req.AuthorName,
-		"GIT_AUTHOR_EMAIL="+req.AuthorEmail,
-		"GIT_AUTHOR_DATE="+when.Format(time.RFC3339),
-		"GIT_COMMITTER_NAME="+req.CommitterName,
-		"GIT_COMMITTER_EMAIL="+req.CommitterEmail,
-		"GIT_COMMITTER_DATE="+when.Format(time.RFC3339),
-	)
+	cmd.Env = gitCommandEnv([]string{
+		"GIT_AUTHOR_NAME=" + req.AuthorName,
+		"GIT_AUTHOR_EMAIL=" + req.AuthorEmail,
+		"GIT_AUTHOR_DATE=" + when.Format(time.RFC3339),
+		"GIT_COMMITTER_NAME=" + req.CommitterName,
+		"GIT_COMMITTER_EMAIL=" + req.CommitterEmail,
+		"GIT_COMMITTER_DATE=" + when.Format(time.RFC3339),
+	})
 
 	stdout, stderr, err := runCommandCapture(cmd, nil)
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return plumbing.ZeroHash, fmt.Errorf("git: write commit: %s: %w", strings.TrimSpace(string(stderr)), err)
-		}
-		return plumbing.ZeroHash, fmt.Errorf("git: write commit: %w", err)
+		return plumbing.ZeroHash, wrapGitStderrError("git: write commit", stderr, err)
 	}
 	return parseHash(strings.TrimSpace(string(stdout)))
 }
@@ -595,10 +545,7 @@ func (b *nativeGitBackend) writeCommit(req gitCommitWriteRequest) (plumbing.Hash
 func (b *nativeGitBackend) listRefsByPrefix(prefix string) ([]string, error) {
 	stdout, stderr, err := b.runCapture(nil, "for-each-ref", "--format=%(refname)", prefix)
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return nil, fmt.Errorf("git: list refs %s: %s: %w", prefix, strings.TrimSpace(string(stderr)), err)
-		}
-		return nil, fmt.Errorf("git: list refs %s: %w", prefix, err)
+		return nil, wrapGitStderrError(fmt.Sprintf("git: list refs %s", prefix), stderr, err)
 	}
 	return splitNonEmptyLines(stdout), nil
 }
@@ -685,8 +632,16 @@ func runCommandCapture(cmd *exec.Cmd, stdin []byte) ([]byte, []byte, error) {
 }
 
 func runStandaloneGitCapture(stdin []byte, args ...string) ([]byte, []byte, error) {
-	cmd := exec.Command("git", args...)
-	return runCommandCapture(cmd, stdin)
+	runtime, err := newGitCommandRuntime()
+	if err != nil {
+		return nil, nil, err
+	}
+	return runtime.runCapture("", stdin, nil, args...)
+}
+
+func runStandaloneGitCaptureWithBinary(binaryPath string, stdin []byte, args ...string) ([]byte, []byte, error) {
+	runtime := &gitCommandRuntime{binaryPath: binaryPath}
+	return runtime.runCapture("", stdin, nil, args...)
 }
 
 func runGitWithContextCapture(ctx *RepoContext, stdin []byte, args ...string) ([]byte, []byte, error) {

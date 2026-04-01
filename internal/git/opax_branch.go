@@ -294,10 +294,11 @@ func validateResolvedOpaxBranchTip(backend *nativeGitBackend, tipHash plumbing.H
 func findLinearRootCommit(backend *nativeGitBackend, tipHash plumbing.Hash) (plumbing.Hash, error) {
 	stdout, stderr, err := backend.runCapture(nil, "rev-list", "--min-parents=2", "--max-count=1", tipHash.String())
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return plumbing.ZeroHash, fmt.Errorf("git: scan opax branch ancestry %s: %s: %w", tipHash, strings.TrimSpace(string(stderr)), err)
-		}
-		return plumbing.ZeroHash, fmt.Errorf("git: scan opax branch ancestry %s: %w", tipHash, err)
+		return plumbing.ZeroHash, wrapGitStderrError(
+			fmt.Sprintf("git: scan opax branch ancestry %s", tipHash),
+			stderr,
+			err,
+		)
 	}
 	mergeCommit := strings.TrimSpace(string(stdout))
 	if mergeCommit != "" {
@@ -306,10 +307,11 @@ func findLinearRootCommit(backend *nativeGitBackend, tipHash plumbing.Hash) (plu
 
 	stdout, stderr, err = backend.runCapture(nil, "rev-list", "--max-parents=0", tipHash.String())
 	if err != nil {
-		if strings.TrimSpace(string(stderr)) != "" {
-			return plumbing.ZeroHash, fmt.Errorf("git: resolve root commit for %s: %s: %w", tipHash, strings.TrimSpace(string(stderr)), err)
-		}
-		return plumbing.ZeroHash, fmt.Errorf("git: resolve root commit for %s: %w", tipHash, err)
+		return plumbing.ZeroHash, wrapGitStderrError(
+			fmt.Sprintf("git: resolve root commit for %s", tipHash),
+			stderr,
+			err,
+		)
 	}
 	roots := splitNonEmptyLines(stdout)
 	if len(roots) == 0 {

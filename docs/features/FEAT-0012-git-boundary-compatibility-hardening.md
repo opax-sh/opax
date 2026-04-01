@@ -2,7 +2,7 @@
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
 **Status:** In Progress
-**Last synced:** 2026-03-31
+**Last synced:** 2026-04-01
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0006 (Orphan branch management), FEAT-0007 (Write records), FEAT-0008 (Read records), FEAT-0009 (Git notes), FEAT-0010 (Trailer support)
 **Dependents:** E4 integrated write path, E5 rebuild/read consumers
 
@@ -138,12 +138,19 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 
 | Checkpoint | Scope | Status | PR |
 | ---------- | ----- | ------ | -- |
-| A | Discovery and backend gate | Planned | TBD |
+| A | Discovery and backend gate | In Progress | TBD |
 | B | Ref primitives and branch lifecycle | Planned | TBD |
 | C | Object reads and batch behavior | Planned | TBD |
 | D | Record reads and walks | Planned | TBD |
 | E | Record writes and notes | Planned | TBD |
 | F | Trailers and cleanup | Planned | TBD |
+
+### Checkpoint A Decision Delta (2026-04-01)
+
+- Introduce one shared command-runtime policy for discovery and backend helper execution.
+- Restrict `OPAX_GIT_BIN` to test execution and fail closed in normal runtime paths.
+- Cache both pass/fail Git version gate results by resolved binary path.
+- Force subprocess locale (`LC_ALL=C`, `LANG=C`) and sanitize/cap stderr context globally.
 
 ---
 

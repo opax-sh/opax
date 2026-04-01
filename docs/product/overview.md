@@ -57,7 +57,7 @@ Opax is also not a generic company-wide issue tracker or product workspace. The 
 The core is thin. It owns data infrastructure; all domain logic lives in plugins.
 
 1. **Git Data Spec** — naming conventions, schemas, and semantics for agent data as git objects. Five git primitives: orphan branches, commit trailers, git notes, custom refs, annotated tags. All data under the `opax/` namespace.
-2. **SDK** — typed read/write access to spec-conformant data, hook event capture, plugin loading, storage lifecycle. Go, using go-git for git operations and modernc.org/sqlite for the query database. Single binary, zero runtime dependencies.
+2. **SDK** — typed read/write access to spec-conformant data, hook event capture, plugin loading, storage lifecycle. Go, using a typed native Git backend adapter for production repository/object/ref operations and modernc.org/sqlite for the query database. Single binary, no daemon or extra services beyond a standard Git environment.
 3. **SQLite query database** — local database at `.git/opax/opax.db` derived from git state. FTS5 full-text search, structured queries, typed views. Always rebuildable from git via `opax db rebuild`.
 4. **Two-tier storage** — metadata and references in git, bulk content (transcripts, diffs, action logs) in content-addressed storage at `.git/opax/content/`, referenced by SHA-256 hash. Tiered retention: hot (same repo) → warm (archive remote) → cold (git bundles).
 5. **Passive capture engine** — reads agent-native storage after the fact. Agent-specific readers know where each platform stores sessions (Claude Code's JSONL, Codex session logs). Hooks detect sessions on commit. Zero agent cooperation required.
@@ -93,6 +93,7 @@ Plugins implement `OpaxPlugin`: namespace registration (path prefix under `opax/
 - **Commit-anchored** — the primary question is "what context produced this commit?" Saves are created on commit. Session data hangs off the save. Sessions without saves (research, failed attempts) are first-class.
 - **Passive capture first** — agents don't need to cooperate with Opax. The system reads agent-native storage after the fact. MCP complements for platforms without shell access.
 - **Fire-and-forget** — no daemon or watcher locally. State advances on user triggers, git hooks, or webhooks. Hooks fire asynchronously and return immediately.
+- **Git is the host platform** — native Git is the production transport for repo/object/ref semantics in `internal/git`; Go keeps Opax validation rules, deterministic pathing, and typed error contracts.
 - **Scrub before encrypt** — secrets are never stored, even encrypted. The hygiene pipeline order is non-negotiable.
 - **Layered metadata** — `Opax-Save` trailers on commits provide tamper-proof links. Detailed metadata lives on the Opax branch. Post-commit annotations (test results, reviews, evals) live in git notes.
 - **Plugin ownership** — domain formats belong to plugins, not the core spec. Keeps the core thin and plugins replaceable.
@@ -114,7 +115,7 @@ Each stage gets the previous stage's context from Opax memory. Context flows thr
 
 ### Repo-native product execution
 
-Team keeps its product intent in repo docs: strategy in `docs/product/`, scoped design in `docs/epics/` and `docs/features/`, task breakdowns in `docs/tasks/`, and execution on branches and PRs. An engineer or agent picks up a scoped task, works with prior session context, and updates the same git-backed record as implementation advances. Another engineer can clone the repo and recover both the plan and the execution trail without opening a separate PM tool.
+Team keeps its product intent in repo docs: strategy in `docs/product/`, scoped design and execution plans in `docs/epics/` and `docs/features/`, and execution on branches and PRs. An engineer or agent picks up a scoped task, works with prior session context, and updates the same git-backed record as implementation advances. Another engineer can clone the repo and recover both the plan and the execution trail without opening a separate PM tool.
 
 ### Audit trail
 

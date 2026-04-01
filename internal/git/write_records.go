@@ -5,15 +5,10 @@ import (
 	"errors"
 	"fmt"
 	pathpkg "path"
-	"sort"
 	"strings"
 	"time"
 
-	ggit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/filemode"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	gitstorage "github.com/go-git/go-git/v5/storage"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -42,17 +37,17 @@ func writeRecordWithExpectedTip(
 	refName plumbing.ReferenceName,
 	req *normalizedWriteRequest,
 ) (*WriteResult, error) {
-	repo, err := openRepoFromContext(ctx)
+	backend, err := openRepoFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	currentRef, err := repo.Reference(refName, true)
+	currentRef, err := backend.readRef(refName)
 	if err != nil {
-		if errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, err)
-		}
-		return nil, fmt.Errorf("git: read ref %s: %w", refName, err)
+		return nil, err
+	}
+	if currentRef == nil {
+		return nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, plumbing.ErrReferenceNotFound)
 	}
 	if currentRef.Hash() != *req.ExpectedTip {
 		return nil, fmt.Errorf(
@@ -64,12 +59,12 @@ func writeRecordWithExpectedTip(
 		)
 	}
 
-	nextRef, err := buildRecordWriteReference(repo, currentRef, req)
+	nextRef, err := buildRecordWriteReference(backend, currentRef, req)
 	if err != nil {
 		return nil, err
 	}
-	if err := publishReference(repo, nextRef, currentRef); err != nil {
-		if errors.Is(err, gitstorage.ErrReferenceHasChanged) {
+	if err := publishReference(backend, nextRef, currentRef); err != nil {
+		if errors.Is(err, errReferenceChanged) {
 			return nil, fmt.Errorf("git: write record %q: %w", req.RecordID, ErrTipChanged)
 		}
 		return nil, fmt.Errorf("git: publish ref %s: %w", refName, err)
@@ -87,12 +82,12 @@ func writeRecordWithRetry(
 	refName plumbing.ReferenceName,
 	req *normalizedWriteRequest,
 ) (*WriteResult, error) {
-	publishedRef, err := publishRefWithRetry(ctx, refName, func(repo *ggit.Repository, currentRef *plumbing.Reference) (*plumbing.Reference, error) {
+	publishedRef, err := publishRefWithRetry(ctx, refName, func(backend *nativeGitBackend, currentRef *plumbing.Reference) (*plumbing.Reference, error) {
 		if currentRef == nil {
 			return nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, plumbing.ErrReferenceNotFound)
 		}
 
-		nextRef, err := buildRecordWriteReference(repo, currentRef, req)
+		nextRef, err := buildRecordWriteReference(backend, currentRef, req)
 		if err != nil {
 			return nil, err
 		}
@@ -102,7 +97,7 @@ func writeRecordWithRetry(
 		switch {
 		case errors.Is(err, ErrRecordExists):
 			return nil, err
-		case errors.Is(err, gitstorage.ErrReferenceHasChanged):
+		case errors.Is(err, errReferenceChanged):
 			return nil, fmt.Errorf("git: write record %q: %w", req.RecordID, ErrTipChanged)
 		default:
 			return nil, err
@@ -117,16 +112,16 @@ func writeRecordWithRetry(
 }
 
 func buildRecordWriteReference(
-	repo *ggit.Repository,
+	backend *nativeGitBackend,
 	currentRef *plumbing.Reference,
 	req *normalizedWriteRequest,
 ) (*plumbing.Reference, error) {
-	currentCommit, err := repo.CommitObject(currentRef.Hash())
+	currentCommit, err := backend.readCommit(currentRef.Hash())
 	if err != nil {
 		return nil, fmt.Errorf("git: branch %s tip %s is not a commit: %w", opaxBranchRef, currentRef.Hash(), err)
 	}
 
-	exists, err := pathExistsInTree(repo, currentCommit.TreeHash, req.RecordRoot)
+	exists, err := pathExistsInTree(backend, currentCommit.TreeHash, req.RecordRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -134,32 +129,27 @@ func buildRecordWriteReference(
 		return nil, fmt.Errorf("git: write record %q at %q: %w", req.RecordID, req.RecordRoot, ErrRecordExists)
 	}
 
-	recordTreeHash, err := writeRecordFilesTree(repo, req.Files)
+	recordTreeHash, err := writeRecordFilesTree(backend, req.Files)
 	if err != nil {
 		return nil, err
 	}
 
 	recordRootSegments := strings.Split(req.RecordRoot, "/")
-	updatedRootTreeHash, err := upsertRecordTree(repo, currentCommit.TreeHash, recordRootSegments, recordTreeHash)
+	updatedRootTreeHash, err := upsertRecordTree(backend, currentCommit.TreeHash, recordRootSegments, recordTreeHash)
 	if err != nil {
 		return nil, err
 	}
 
 	now := time.Now().UTC()
-	commitHash, err := writeCommit(repo, &object.Commit{
-		Author: object.Signature{
-			Name:  opaxAuthorName,
-			Email: opaxAuthorEmail,
-			When:  now,
-		},
-		Committer: object.Signature{
-			Name:  opaxAuthorName,
-			Email: opaxAuthorEmail,
-			When:  now,
-		},
-		Message:      fmt.Sprintf("opax: write %s %s", req.Collection, req.RecordID),
-		TreeHash:     updatedRootTreeHash,
-		ParentHashes: []plumbing.Hash{currentRef.Hash()},
+	commitHash, err := backend.writeCommit(gitCommitWriteRequest{
+		TreeHash:       updatedRootTreeHash,
+		ParentHashes:   []plumbing.Hash{currentRef.Hash()},
+		Message:        fmt.Sprintf("opax: write %s %s", req.Collection, req.RecordID),
+		AuthorName:     opaxAuthorName,
+		AuthorEmail:    opaxAuthorEmail,
+		CommitterName:  opaxAuthorName,
+		CommitterEmail: opaxAuthorEmail,
+		When:           now,
 	})
 	if err != nil {
 		return nil, err
@@ -328,7 +318,7 @@ func deriveRecordRoot(collection, recordID string) string {
 	return pathpkg.Join(collection, shard, recordID)
 }
 
-func pathExistsInTree(repo *ggit.Repository, rootTreeHash plumbing.Hash, targetPath string) (bool, error) {
+func pathExistsInTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash, targetPath string) (bool, error) {
 	segments := strings.Split(targetPath, "/")
 	if len(segments) == 0 {
 		return false, fmt.Errorf("git: empty path lookup")
@@ -336,12 +326,12 @@ func pathExistsInTree(repo *ggit.Repository, rootTreeHash plumbing.Hash, targetP
 
 	currentTreeHash := rootTreeHash
 	for i, segment := range segments {
-		tree, err := repo.TreeObject(currentTreeHash)
+		entries, err := backend.readTree(currentTreeHash)
 		if err != nil {
 			return false, fmt.Errorf("git: read tree %s while checking %q: %w", currentTreeHash, targetPath, err)
 		}
 
-		entry, found := findTreeEntryByName(tree.Entries, segment)
+		entry, found := findTreeEntryByName(entries, segment)
 		if !found {
 			return false, nil
 		}
@@ -349,7 +339,7 @@ func pathExistsInTree(repo *ggit.Repository, rootTreeHash plumbing.Hash, targetP
 		if i == len(segments)-1 {
 			return true, nil
 		}
-		if entry.Mode != filemode.Dir {
+		if !entryIsTree(entry) {
 			componentPath := strings.Join(segments[:i+1], "/")
 			return false, fmt.Errorf("git: path component %q for %q is not a directory", componentPath, targetPath)
 		}
@@ -358,14 +348,14 @@ func pathExistsInTree(repo *ggit.Repository, rootTreeHash plumbing.Hash, targetP
 	return false, nil
 }
 
-func writeRecordFilesTree(repo *ggit.Repository, files []normalizedRecordFile) (plumbing.Hash, error) {
+func writeRecordFilesTree(backend *nativeGitBackend, files []normalizedRecordFile) (plumbing.Hash, error) {
 	root := &recordTreeNode{
 		Dirs:  make(map[string]*recordTreeNode),
 		Files: make(map[string]plumbing.Hash),
 	}
 
 	for _, file := range files {
-		blobHash, err := writeBlob(repo, file.Content)
+		blobHash, err := backend.writeBlob(file.Content)
 		if err != nil {
 			return plumbing.ZeroHash, err
 		}
@@ -404,51 +394,52 @@ func writeRecordFilesTree(repo *ggit.Repository, files []normalizedRecordFile) (
 		}
 	}
 
-	return writeRecordTreeNode(repo, root)
+	return writeRecordTreeNode(backend, root)
 }
 
-func writeRecordTreeNode(repo *ggit.Repository, node *recordTreeNode) (plumbing.Hash, error) {
-	entries := make([]object.TreeEntry, 0, len(node.Dirs)+len(node.Files))
+func writeRecordTreeNode(backend *nativeGitBackend, node *recordTreeNode) (plumbing.Hash, error) {
+	entries := make([]gitTreeEntry, 0, len(node.Dirs)+len(node.Files))
 	for name, dirNode := range node.Dirs {
-		hash, err := writeRecordTreeNode(repo, dirNode)
+		hash, err := writeRecordTreeNode(backend, dirNode)
 		if err != nil {
 			return plumbing.ZeroHash, err
 		}
-		entries = append(entries, object.TreeEntry{
+		entries = append(entries, gitTreeEntry{
 			Name: name,
-			Mode: filemode.Dir,
+			Mode: gitModeTree,
+			Type: "tree",
 			Hash: hash,
 		})
 	}
 	for name, hash := range node.Files {
-		entries = append(entries, object.TreeEntry{
+		entries = append(entries, gitTreeEntry{
 			Name: name,
-			Mode: filemode.Regular,
+			Mode: gitModeBlob,
+			Type: "blob",
 			Hash: hash,
 		})
 	}
-	sortTreeEntries(entries)
 
-	return writeTree(repo, entries)
+	return backend.writeTree(entries)
 }
 
 func upsertRecordTree(
-	repo *ggit.Repository,
+	backend *nativeGitBackend,
 	rootTreeHash plumbing.Hash,
 	segments []string,
 	recordTreeHash plumbing.Hash,
 ) (plumbing.Hash, error) {
-	currentTree, err := repo.TreeObject(rootTreeHash)
+	entries, err := backend.readTree(rootTreeHash)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("git: read root tree %s: %w", rootTreeHash, err)
 	}
 
-	return upsertRecordTreeRecursive(repo, currentTree, segments, recordTreeHash)
+	return upsertRecordTreeRecursive(backend, entries, segments, recordTreeHash)
 }
 
 func upsertRecordTreeRecursive(
-	repo *ggit.Repository,
-	tree *object.Tree,
+	backend *nativeGitBackend,
+	entries []gitTreeEntry,
 	segments []string,
 	recordTreeHash plumbing.Hash,
 ) (plumbing.Hash, error) {
@@ -456,68 +447,67 @@ func upsertRecordTreeRecursive(
 		return plumbing.ZeroHash, fmt.Errorf("git: upsert record path: no path segments")
 	}
 
-	entries := make(map[string]object.TreeEntry, len(tree.Entries)+1)
-	for _, entry := range tree.Entries {
-		entries[entry.Name] = entry
+	entryMap := make(map[string]gitTreeEntry, len(entries)+1)
+	for _, entry := range entries {
+		entryMap[entry.Name] = entry
 	}
 
 	segment := segments[0]
 	if len(segments) == 1 {
-		entries[segment] = object.TreeEntry{
+		entryMap[segment] = gitTreeEntry{
 			Name: segment,
-			Mode: filemode.Dir,
+			Mode: gitModeTree,
+			Type: "tree",
 			Hash: recordTreeHash,
 		}
-		return writeTree(repo, entriesFromMap(entries))
+		return writeTreeFromMap(backend, entryMap)
 	}
 
-	var childTree *object.Tree
-	childEntry, found := entries[segment]
+	childEntry, found := entryMap[segment]
+	var childEntries []gitTreeEntry
 	if found {
-		if childEntry.Mode != filemode.Dir {
+		if !entryIsTree(childEntry) {
 			return plumbing.ZeroHash, fmt.Errorf("git: path component %q is not a directory", segment)
 		}
 
 		var err error
-		childTree, err = repo.TreeObject(childEntry.Hash)
+		childEntries, err = backend.readTree(childEntry.Hash)
 		if err != nil {
 			return plumbing.ZeroHash, fmt.Errorf("git: read tree for %q: %w", segment, err)
 		}
-	} else {
-		childTree = &object.Tree{}
 	}
 
-	updatedChildHash, err := upsertRecordTreeRecursive(repo, childTree, segments[1:], recordTreeHash)
+	updatedChildHash, err := upsertRecordTreeRecursive(backend, childEntries, segments[1:], recordTreeHash)
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
 
-	entries[segment] = object.TreeEntry{
+	entryMap[segment] = gitTreeEntry{
 		Name: segment,
-		Mode: filemode.Dir,
+		Mode: gitModeTree,
+		Type: "tree",
 		Hash: updatedChildHash,
 	}
-	return writeTree(repo, entriesFromMap(entries))
+	return writeTreeFromMap(backend, entryMap)
 }
 
-func entriesFromMap(entries map[string]object.TreeEntry) []object.TreeEntry {
-	result := make([]object.TreeEntry, 0, len(entries))
+func writeTreeFromMap(backend *nativeGitBackend, entries map[string]gitTreeEntry) (plumbing.Hash, error) {
+	ordered := make([]gitTreeEntry, 0, len(entries))
 	for _, entry := range entries {
-		result = append(result, entry)
+		ordered = append(ordered, entry)
 	}
-	sortTreeEntries(result)
-	return result
+	return backend.writeTree(ordered)
 }
 
-func sortTreeEntries(entries []object.TreeEntry) {
-	sort.Sort(object.TreeEntrySorter(entries))
-}
-
-func findTreeEntryByName(entries []object.TreeEntry, name string) (object.TreeEntry, bool) {
+func findTreeEntryByName(entries []gitTreeEntry, name string) (gitTreeEntry, bool) {
 	for _, entry := range entries {
 		if entry.Name == name {
 			return entry, true
 		}
 	}
-	return object.TreeEntry{}, false
+	return gitTreeEntry{}, false
+}
+
+func entryIsTree(entry gitTreeEntry) bool {
+	return entry.Type == "tree" && entry.Mode == gitModeTree
 }

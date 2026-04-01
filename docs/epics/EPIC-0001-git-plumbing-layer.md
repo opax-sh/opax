@@ -10,7 +10,7 @@
 
 ## Goal
 
-Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/notes/opax/`*, support `Opax-Save` trailer parsing and insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
+Provide the low-level git substrate for Opax Phase 0: discover the repository safely, create and validate the `opax/v1` orphan branch, write and read records on that branch without touching the working tree, manage git notes under `refs/notes/opax/`*, support `Opax-Save` trailer parsing plus hook-time insertion, and generate conservative refspec configuration for later `opax init`, `opax pull`, and `opax push` flows.
 
 ## Why This Epic Matters
 
@@ -21,7 +21,7 @@ Everything in Phase 0 depends on trustworthy git plumbing. If this layer is slop
 - The materializer cannot claim rebuildability if branch reads are ambiguous or notes refs are inconsistent.
 - The trailer story collapses if save IDs are only created after the commit already exists.
 
-This is the riskiest Phase 0 epic because it combines custom git object manipulation, repo topology edge cases, and hook-driven commit lifecycle behavior.
+This is the riskiest Phase 0 epic because it combines custom git object manipulation, repo topology edge cases, and hook-driven commit lifecycle behavior. Git is also the host platform here, so the implementation boundary matters as much as the feature list.
 
 ---
 
@@ -49,7 +49,7 @@ Phase 0 uses the preallocation model selected during planning:
 Implications:
 
 - Aborted commits can leave unused `sav_` IDs; this is acceptable
-- `FEAT-0010` owns trailer text manipulation and parsing, not save creation
+- `FEAT-0010` owns save-ID preallocation and committed-trailer parsing, while hook-time trailer mutation follows native Git semantics
 - `FEAT-0026`, `FEAT-0048`, and `FEAT-0062` consume the preallocated save ID later
 
 ### 3. Direct Branch Reads Are Internal Primitives
@@ -102,6 +102,8 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 | FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/notes/opax/`* with per-namespace CAS retry      | Mutable metadata layer                        |
 | FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
 | FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
+| FEAT-0012  | Native backend adapter migration | Make native Git the production backend transport behind a typed `internal/git` adapter | Checkpointed slices A-F with canonical-fixture CI gates; preserve typed contracts during transport swap |
+| FEAT-0013  | go-git API and type decoupling | Remove the frozen FEAT-0012 `go-git` compatibility surface in two stages         | Blocked until FEAT-0012 closeout is merged    |
 
 
 ---
@@ -115,7 +117,9 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 - open repositories
 - inspect refs, commits, trees, and notes
 - write branch commits on `opax/v1`
-- read and modify commit message text for trailers
+- parse committed commit message text for trailers
+- use the shared typed native backend adapter for production repository/object/ref transport
+- keep exported `go-git` surface types stable through FEAT-0012 closeout; FEAT-0013 owns the decoupling follow-up
 - read and write Opax-specific git config values
 
 It may **not**:
@@ -190,6 +194,7 @@ No caller-supplied absolute paths, parent traversal, or unscoped tree edits.
 - valid `sav_` IDs only
 - replace-on-regenerate semantics for amend/rebase/cherry-pick/squash flows
 - parser helpers for existing commits and raw commit messages
+- hook-time trailer mutation is Git-owned; committed-message validation is Opax-owned
 
 ### Refspec Contract
 
@@ -238,7 +243,7 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 
 | Risk                                                                 | Impact      | Mitigation                                                                            |
 | -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| Tree mutation logic in go-git is awkward or incomplete               | High        | Keep a narrow internal fallback to shell plumbing with identical tests and semantics  |
+| Native backend command parsing/regression bugs                       | High        | Keep one typed adapter, enforce parity tests on reads/writes/notes/trailers, and fail closed on malformed output |
 | Worktree/common-dir resolution is mishandled                         | High        | Make `RepoContext` authoritative and test linked worktrees explicitly                 |
 | Stale-tip writes silently overwrite branch history                   | High        | Require compare-and-swap updates and explicit conflict errors                         |
 | Refspec config changes accidentally change plain `git push` behavior | High        | Store Opax explicit refspecs separately; never mutate `remote.<name>.push` in Phase 0 |
@@ -259,6 +264,8 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 - `FEAT-0009` can bootstrap missing notes refs and enumerate notes for rebuild
 - `FEAT-0010` inserts exactly one valid `Opax-Save` trailer and parses it back from commits
 - `FEAT-0011` preserves stealth default: plain `git fetch` and `git push` remain code-centric
+- `FEAT-0012` establishes native Git as the production transport with typed adapter-backed semantics
+- `FEAT-0012` checkpoint slices are CI-gated by canonical linked-worktree compatibility tests on Linux and macOS, with hard call-count ceilings for read-path slices
 - All git writes use machine identity `Opax <opax@local>`
 - No code in `internal/git/` checks out or modifies the working tree
 

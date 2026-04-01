@@ -1,16 +1,10 @@
 package git
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/go-git/go-billy/v5/osfs"
-	ggit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/cache"
-	fsstorage "github.com/go-git/go-git/v5/storage/filesystem"
 )
 
 // DiscoverRepo resolves repository paths starting from startDir.
@@ -19,17 +13,28 @@ func DiscoverRepo(startDir string) (*RepoContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	runtime, err := newGitCommandRuntime()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureSupportedGitVersion(runtime.binaryPath); err != nil {
+		return nil, err
+	}
 
-	repo, err := openRepository(resolvedStart)
+	gitDir, commonGitDir, isBare, err := discoverRepoCore(runtime, resolvedStart)
+	if err != nil {
+		return nil, err
+	}
+	if isBare {
+		return nil, ErrBareRepo
+	}
+
+	workTreeRoot, err := discoverWorkTreeRoot(runtime, resolvedStart)
 	if err != nil {
 		return nil, err
 	}
 
-	workTreeRoot, gitDir, commonGitDir, isLinkedWorktree, err := buildRepoPaths(repo)
-	if err != nil {
-		return nil, err
-	}
-
+	isLinkedWorktree := filepath.Clean(commonGitDir) != filepath.Clean(gitDir)
 	return &RepoContext{
 		RepoRoot:         workTreeRoot,
 		WorkTreeRoot:     workTreeRoot,
@@ -44,7 +49,6 @@ func normalizeStartDir(startDir string) (string, error) {
 	if startDir == "" {
 		startDir = "."
 	}
-
 	return normalizeExistingDir(startDir, "start dir")
 }
 
@@ -70,123 +74,165 @@ func normalizeExistingDir(path, label string) (string, error) {
 	return filepath.Clean(resolvedPath), nil
 }
 
-func openRepository(startDir string) (*ggit.Repository, error) {
-	repo, err := ggit.PlainOpenWithOptions(startDir, &ggit.PlainOpenOptions{
-		DetectDotGit: true,
-	})
-	if err != nil {
-		if !errors.Is(err, ggit.ErrRepositoryNotExists) {
-			return nil, fmt.Errorf("git: open repository %s: %w", startDir, err)
+func discoverRepoCore(runtime *gitCommandRuntime, startDir string) (gitDir string, commonGitDir string, isBare bool, err error) {
+	stdout, stderr, runErr := runGitFromDirCapture(runtime, startDir,
+		"rev-parse",
+		"--path-format=absolute",
+		"--absolute-git-dir",
+		"--git-common-dir",
+		"--is-bare-repository",
+	)
+	if runErr != nil {
+		if probeErr := probeDiscoveryFailure(startDir); probeErr != nil {
+			return "", "", false, probeErr
 		}
-
-		repo, bareErr := ggit.PlainOpen(startDir)
-		if bareErr == nil {
-			return repo, nil
+		if isNotGitRepository(stderr) {
+			return "", "", false, ErrNotGitRepo
 		}
-		if errors.Is(bareErr, ggit.ErrRepositoryNotExists) {
-			return nil, ErrNotGitRepo
-		}
-		return nil, fmt.Errorf("git: open repository %s: %w", startDir, bareErr)
+		return "", "", false, wrapGitStderrError(
+			fmt.Sprintf("git: discover repository from %s", startDir),
+			stderr,
+			runErr,
+		)
 	}
 
-	return repo, nil
+	lines := splitNonEmptyLines(stdout)
+	if len(lines) != 3 {
+		return "", "", false, fmt.Errorf("git: discover repository from %s: unexpected rev-parse output", startDir)
+	}
+
+	resolvedGitDir, err := normalizeExistingDir(lines[0], "git dir")
+	if err != nil {
+		return "", "", false, err
+	}
+	resolvedCommonGitDir, err := normalizeExistingDir(lines[1], "common git dir")
+	if err != nil {
+		return "", "", false, err
+	}
+
+	bareRaw := strings.TrimSpace(lines[2])
+	if bareRaw != "true" && bareRaw != "false" {
+		return "", "", false, fmt.Errorf("git: discover repository from %s: invalid bare flag %q", startDir, bareRaw)
+	}
+
+	return resolvedGitDir, resolvedCommonGitDir, bareRaw == "true", nil
 }
 
-func buildRepoPaths(repo *ggit.Repository) (string, string, string, bool, error) {
-	worktree, err := repo.Worktree()
+func discoverWorkTreeRoot(runtime *gitCommandRuntime, startDir string) (string, error) {
+	stdout, stderr, err := runGitFromDirCapture(
+		runtime,
+		startDir,
+		"rev-parse",
+		"--path-format=absolute",
+		"--show-toplevel",
+	)
 	if err != nil {
-		if errors.Is(err, ggit.ErrIsBareRepository) {
-			return "", "", "", false, ErrBareRepo
+		if isNotGitRepository(stderr) {
+			return "", ErrNotGitRepo
 		}
-		return "", "", "", false, fmt.Errorf("git: open worktree: %w", err)
+		return "", wrapGitStderrError(
+			fmt.Sprintf("git: discover worktree root from %s", startDir),
+			stderr,
+			err,
+		)
 	}
 
-	workTreeRoot, err := normalizeExistingDir(worktree.Filesystem.Root(), "worktree root")
-	if err != nil {
-		return "", "", "", false, err
+	line := strings.TrimSpace(string(stdout))
+	if line == "" {
+		return "", fmt.Errorf("git: discover worktree root from %s: empty output", startDir)
 	}
-
-	gitDir, err := gitDirFromRepository(repo)
-	if err != nil {
-		return "", "", "", false, err
-	}
-
-	commonGitDir, hasCommonDir, err := resolveCommonGitDir(gitDir)
-	if err != nil {
-		return "", "", "", false, err
-	}
-
-	isLinkedWorktree := hasCommonDir && filepath.Clean(commonGitDir) != filepath.Clean(gitDir)
-	return workTreeRoot, gitDir, commonGitDir, isLinkedWorktree, nil
+	return normalizeExistingDir(line, "worktree root")
 }
 
-func gitDirFromRepository(repo *ggit.Repository) (string, error) {
-	storage, ok := repo.Storer.(*fsstorage.Storage)
-	if !ok {
-		return "", fmt.Errorf("git: unexpected repository storage type %T", repo.Storer)
+func runGitFromDirCapture(runtime *gitCommandRuntime, dir string, args ...string) ([]byte, []byte, error) {
+	if runtime == nil {
+		return nil, nil, fmt.Errorf("git: runtime is nil")
 	}
-
-	return normalizeExistingDir(storage.Filesystem().Root(), "git dir")
+	gitArgs := append([]string{"-C", dir}, args...)
+	return runtime.runCapture("", nil, nil, gitArgs...)
 }
 
-func resolveCommonGitDir(gitDir string) (string, bool, error) {
-	commonDirPath := filepath.Join(gitDir, "commondir")
-	data, err := os.ReadFile(commonDirPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return gitDir, false, nil
-		}
-		return "", false, fmt.Errorf("git: read commondir %s: %w", commonDirPath, err)
-	}
-
-	relPath := strings.TrimSpace(string(data))
-	if relPath == "" {
-		return "", false, fmt.Errorf("git: parse commondir %s: empty path", commonDirPath)
-	}
-
-	resolvedPath := relPath
-	if !filepath.IsAbs(relPath) {
-		resolvedPath = filepath.Join(gitDir, relPath)
-	}
-	resolvedPath = filepath.Clean(resolvedPath)
-	if err := ensureExistingDir(resolvedPath, "common git dir"); err != nil {
-		return "", false, err
-	}
-	resolvedPath, err = normalizeExistingDir(resolvedPath, "common git dir")
-	if err != nil {
-		return "", false, err
-	}
-	return resolvedPath, true, nil
+func isNotGitRepository(stderr []byte) bool {
+	message := strings.ToLower(strings.TrimSpace(string(stderr)))
+	return strings.Contains(message, "not a git repository") || strings.Contains(message, "outside repository")
 }
 
-func ensureExistingDir(path, label string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("git: %s does not exist: %s", label, path)
+func splitNonEmptyLines(data []byte) []string {
+	raw := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
 		}
-		return fmt.Errorf("git: stat %s %s: %w", label, path, err)
+		out = append(out, trimmed)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("git: %s is not a directory: %s", label, path)
+	return out
+}
+
+func probeDiscoveryFailure(startDir string) error {
+	gitPath := filepath.Join(startDir, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return nil
 	}
+	if info.IsDir() {
+		return nil
+	}
+
+	data, err := os.ReadFile(gitPath)
+	if err != nil {
+		return nil
+	}
+	content := strings.TrimSpace(string(data))
+	const prefix = "gitdir:"
+	if !strings.HasPrefix(content, prefix) {
+		return fmt.Errorf("git: parse git file %s: gitdir:  prefix missing", gitPath)
+	}
+
+	gitDirPath := strings.TrimSpace(strings.TrimPrefix(content, prefix))
+	if gitDirPath == "" {
+		return fmt.Errorf("git: parse git file %s: empty gitdir path", gitPath)
+	}
+	if !filepath.IsAbs(gitDirPath) {
+		gitDirPath = filepath.Join(startDir, gitDirPath)
+	}
+	gitDirPath = filepath.Clean(gitDirPath)
+
+	commondirPath := filepath.Join(gitDirPath, "commondir")
+	commondirData, err := os.ReadFile(commondirPath)
+	if err != nil {
+		return nil
+	}
+	relativeCommonDir := strings.TrimSpace(string(commondirData))
+	if relativeCommonDir == "" {
+		return fmt.Errorf("git: parse commondir %s: empty path", commondirPath)
+	}
+
+	resolvedCommonDir := relativeCommonDir
+	if !filepath.IsAbs(relativeCommonDir) {
+		resolvedCommonDir = filepath.Join(gitDirPath, relativeCommonDir)
+	}
+	resolvedCommonDir = filepath.Clean(resolvedCommonDir)
+	if _, err := os.Stat(resolvedCommonDir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("git: common git dir does not exist: %s", resolvedCommonDir)
+		}
+		return fmt.Errorf("git: stat common git dir %s: %w", resolvedCommonDir, err)
+	}
+
 	return nil
 }
 
-func openRepoFromContext(ctx *RepoContext) (*ggit.Repository, error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("git: repo context is nil")
-	}
-	if ctx.CommonGitDir == "" {
-		return nil, fmt.Errorf("git: common git dir is empty")
-	}
-
-	storage := fsstorage.NewStorage(osfs.New(ctx.CommonGitDir), cache.NewObjectLRUDefault())
-	repo, err := ggit.Open(storage, nil)
+func openRepoFromContext(ctx *RepoContext) (*nativeGitBackend, error) {
+	backend, err := newNativeGitBackend(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("git: open repository from common git dir %s: %w", ctx.CommonGitDir, err)
+		return nil, err
 	}
-	return repo, nil
+	if err := backend.ensureSupportedGitVersion(); err != nil {
+		return nil, err
+	}
+	return backend, nil
 }
 
 func opaxLockPath(ctx *RepoContext) (string, error) {

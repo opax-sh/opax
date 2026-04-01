@@ -2,7 +2,7 @@
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
 **Status:** Completed
-**Last synced:** 2026-03-31
+**Last synced:** 2026-03-30
 **Dependencies:** FEAT-0005 (Repo discovery), FEAT-0002 (ID types)
 **Dependents:** E4 commit linkage, E8 save creation, E11 hook lifecycle
 
@@ -26,9 +26,9 @@ This feature does **not** create the save record itself.
 
 ### Scope
 
-`internal/git/` owns save-ID allocation and committed-trailer parsing. Hook installation, wrapper scripts, and post-commit orchestration belong to E11.
+`internal/git/` owns save-ID allocation and committed-trailer validation policy. Hook installation, wrapper scripts, and post-commit orchestration belong to E11.
 
-`UpsertSaveTrailer` is a hook-time helper, not a general-purpose pure-Go commit-message normalizer. Opax keeps committed-object parsing and validation in Go, but trailer insertion/replacement follows native Git semantics so repo config, comment-char handling, and linked worktree behavior stay aligned with Git itself.
+`UpsertSaveTrailer` is a hook-time helper, not a general-purpose pure-Go commit-message normalizer. Trailer mutation and trailer recognition follow native Git semantics so repo config, comment-char handling, and linked worktree behavior stay aligned with Git itself. Opax keeps committed-object reads and save-ID validation policy in Go.
 
 ### Public API
 
@@ -94,15 +94,13 @@ Reusing an old `Opax-Save` would point a new commit at the wrong future save, so
 - validate the value with `types.SaveID.Validate()`
 - return an error when multiple matching save trailers exist or the value is not a valid `sav_` ID
 
-### Aborted Commits
-
 ### Runtime Boundary
 
-Phase 0 uses a hybrid ownership model:
+Phase 0 ownership model at this feature boundary:
 
-- native Git owns hook-time trailer mutation
-- Go/go-git owns committed-object reads and save-trailer validation
-- no broader production shell-out boundary is implied by this feature
+- native Git owns trailer mutation and trailer recognition semantics
+- Go plus the typed `internal/git` native adapter own committed-object reads and save-trailer validation policy
+- this feature does not introduce extra ad hoc shell-out boundaries beyond the shared adapter
 
 CI pins a minimum Git version (`2.30.0`) for trailer integration suites to reduce environment drift. Locally, the Git-backed suites skip only when Git is unavailable.
 
@@ -146,7 +144,7 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 ### Git-backed integration layer
 
 - `TestTrailerParityUpsertSaveTrailer`: native-Git rewrite parity for subject-only, subject+body, existing non-Opax trailers, mixed-case `opax-save` replacement, blank-line recognition, default/custom comment blocks, and scissor placement
-- `TestTrailerParityParseSaveTrailer`: parse parity for absent trailer, proper blank-separated trailer block, unseparated body text, and parse-output preservation of other trailers
+- `TestTrailerParityParseSaveTrailer`: parse parity for absent trailer, proper blank-separated trailer block, unseparated body text, parse-output preservation of other trailers, and trailer recognition with retained template comment lines
 - `TestTrailerPolicyUpsertSaveTrailerUsesLinkedWorktreeConfig`: hook-time mutation honors worktree-local config instead of shared config only
 - each rewrite test reuses the Opax-generated `sav_` in the Git invocation and compares full message bytes
 
@@ -161,6 +159,8 @@ Aborted commits may orphan preallocated `sav_` IDs. This is acceptable. No clean
 - `TestTrailerPolicyParseSaveTrailerValidation`: malformed and duplicate save trailer errors are Opax-enforced
 - `TestTrailerPolicyCanonicalTokenSpellingOnInsert`: insertion always emits canonical `Opax-Save`
 - `TestTrailerPolicyParseSaveTrailerFromCommit` + `TestTrailerPolicyParseSaveTrailerFromCommitAppliesValidation`: read committed message and apply Opax validation
+- `TestTrailerPolicyParseSaveTrailerFromCommitWithRetainedTemplateComments`: parse committed save trailer when retained comment/template lines follow the trailer
+- `TestTrailerPolicyParseSaveTrailerFromCommitHonorsCommentCharInLinkedWorktreeContext`: parse committed save trailer in linked-worktree context with configured non-default comment-char semantics
 - `TestTrailerPolicyAutoCommentCharFailClosedHeuristics`: body content remains intact on representative `core.commentChar=auto` inputs now that mutation follows native Git behavior
 
 ### Upstream References

@@ -133,6 +133,11 @@ func TestTrailerParityParseSaveTrailer(t *testing.T) {
 			message:          "feat: test\n\nbody\n\nReviewed-by: QA <qa@example.com>\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\n",
 			wantOracleParsed: []string{"Reviewed-by: QA <qa@example.com>", "Opax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV"},
 		},
+		{
+			name:             "trailer followed by retained template comments",
+			message:          "feat: test\n\nbody\n\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\n# comment one\n# comment two\n",
+			wantOracleParsed: []string{"Opax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -258,6 +263,100 @@ func TestTrailerPolicyParseSaveTrailerFromCommitAppliesValidation(t *testing.T) 
 	}
 	if !strings.Contains(err.Error(), "invalid Opax-Save value") {
 		t.Fatalf("ParseSaveTrailerFromCommit() error = %v, want invalid value message", err)
+	}
+}
+
+func TestTrailerPolicyParseSaveTrailerFromCommitRejectsDuplicateMixedCaseTrailers(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	writeTrackedFile(t, repoRoot, "README.md", "hello\n")
+	runGit(t, repoRoot, "add", "README.md")
+
+	message := "feat: test\n\nbody\n\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\nopax-save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAW\n"
+	messagePath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
+	if err := os.WriteFile(messagePath, []byte(message), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", messagePath, err)
+	}
+	runGit(t, repoRoot, "commit", "-F", messagePath)
+
+	if _, _, err := internalgit.ParseSaveTrailer([]byte(message)); err == nil {
+		t.Fatal("ParseSaveTrailer() error = nil, want duplicate trailer validation error")
+	} else if !strings.Contains(err.Error(), "multiple Opax-Save trailers") {
+		t.Fatalf("ParseSaveTrailer() error = %v, want duplicate trailer message", err)
+	}
+
+	ctx := mustDiscoverRepo(t, repoRoot)
+	commitHash := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "HEAD"))
+	_, _, err := internalgit.ParseSaveTrailerFromCommit(ctx, commitHash)
+	if err == nil {
+		t.Fatal("ParseSaveTrailerFromCommit() error = nil, want duplicate trailer validation error")
+	}
+	if !strings.Contains(err.Error(), "multiple Opax-Save trailers") {
+		t.Fatalf("ParseSaveTrailerFromCommit() error = %v, want duplicate trailer message", err)
+	}
+}
+
+func TestTrailerPolicyParseSaveTrailerFromCommitWithRetainedTemplateComments(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	runGit(t, repoRoot, "config", "commit.cleanup", "verbatim")
+	writeTrackedFile(t, repoRoot, "README.md", "hello\n")
+	runGit(t, repoRoot, "add", "README.md")
+
+	messagePath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
+	message := "feat: test\n\nbody\n\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\n# comment one\n# comment two\n"
+	if err := os.WriteFile(messagePath, []byte(message), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", messagePath, err)
+	}
+
+	runGit(t, repoRoot, "commit", "-F", messagePath)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	commitHash := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "HEAD"))
+	saveID, ok, err := internalgit.ParseSaveTrailerFromCommit(ctx, commitHash)
+	if err != nil {
+		t.Fatalf("ParseSaveTrailerFromCommit() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ParseSaveTrailerFromCommit() ok = false, want true")
+	}
+	if saveID.String() != "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Fatalf("ParseSaveTrailerFromCommit() ID = %q, want %q", saveID, "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}
+}
+
+func TestTrailerPolicyParseSaveTrailerFromCommitHonorsCommentCharInLinkedWorktreeContext(t *testing.T) {
+	mainRepo := initGitRepo(t)
+	writeTrackedFile(t, mainRepo, "README.md", "hello\n")
+	runGit(t, mainRepo, "add", "README.md")
+	runGit(t, mainRepo, "commit", "-m", "initial")
+	runGit(t, mainRepo, "branch", "feature")
+	runGit(t, mainRepo, "config", "core.commentChar", ";")
+	runGit(t, mainRepo, "config", "commit.cleanup", "verbatim")
+
+	worktreeRoot := filepath.Join(t.TempDir(), "wt")
+	runGit(t, mainRepo, "worktree", "add", worktreeRoot, "feature")
+
+	writeTrackedFile(t, worktreeRoot, "feature.txt", "worktree change\n")
+	runGit(t, worktreeRoot, "add", "feature.txt")
+
+	messagePath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
+	message := "feat: test\n\nbody\n\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\n; comment one\n; comment two\n"
+	if err := os.WriteFile(messagePath, []byte(message), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", messagePath, err)
+	}
+
+	runGit(t, worktreeRoot, "commit", "-F", messagePath)
+
+	ctx := mustDiscoverRepo(t, worktreeRoot)
+	commitHash := strings.TrimSpace(runGit(t, worktreeRoot, "rev-parse", "HEAD"))
+	saveID, ok, err := internalgit.ParseSaveTrailerFromCommit(ctx, commitHash)
+	if err != nil {
+		t.Fatalf("ParseSaveTrailerFromCommit() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ParseSaveTrailerFromCommit() ok = false, want true")
+	}
+	if saveID.String() != "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Fatalf("ParseSaveTrailerFromCommit() ID = %q, want %q", saveID, "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	}
 }
 

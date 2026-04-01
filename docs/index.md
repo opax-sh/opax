@@ -30,6 +30,14 @@ Use it as the one-page status rollup across all epics and features.
 | FEAT-0009 | EPIC-0001 | Completed | [features/FEAT-0009-git-notes-operations.md](features/FEAT-0009-git-notes-operations.md)         |
 | FEAT-0010 | EPIC-0001 | Completed | [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md)     |
 | FEAT-0011 | EPIC-0001 | Backlog   | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)       |
+| FEAT-0012 | EPIC-0001 | Completed | [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md) |
+| FEAT-0013 | EPIC-0001 | Blocked | [features/FEAT-0013-go-git-api-type-decoupling.md](features/FEAT-0013-go-git-api-type-decoupling.md) |
+
+### Native Backend Status
+
+- FEAT-0012 is completed: checkpoints A-F landed, native Git is the production transport for `internal/git`, and the repo-local proof gates are green.
+- FEAT-0012 intentionally leaves the frozen `go-git/plumbing` compatibility surface in place; full `go-git` type/module removal moves to FEAT-0013.
+- FEAT-0013 is blocked as the follow-up that owns exported contract decoupling first, then remaining internal cleanup and module removal.
 
 
 ## Update Rules
@@ -77,6 +85,8 @@ Use it as the one-page status rollup across all epics and features.
 - [features/FEAT-0009-git-notes-operations.md](features/FEAT-0009-git-notes-operations.md)
 - [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md)
 - [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)
+- [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md)
+- [features/FEAT-0013-go-git-api-type-decoupling.md](features/FEAT-0013-go-git-api-type-decoupling.md)
 - [features/_template.md](features/_template.md)
 
 ### `architecture/`
@@ -91,6 +101,8 @@ Use it as the one-page status rollup across all epics and features.
 - [adrs/ADR-004-passive-capture.md](adrs/ADR-004-passive-capture.md)
 - [adrs/ADR-005-commit-anchored-data-model.md](adrs/ADR-005-commit-anchored-data-model.md)
 - [adrs/ADR-006-execution-drivers.md](adrs/ADR-006-execution-drivers.md)
+- [adrs/ADR-007-git-cli-boundary-for-hook-semantics.md](adrs/ADR-007-git-cli-boundary-for-hook-semantics.md)
+- [adrs/ADR-008-native-git-backend-adapter-for-internal-git.md](adrs/ADR-008-native-git-backend-adapter-for-internal-git.md)
 - [adrs/_template.md](adrs/_template.md)
 
 ### `misc/`

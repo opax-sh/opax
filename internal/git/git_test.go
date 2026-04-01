@@ -328,7 +328,7 @@ func TestEnsureOpaxBranchCreatesRoot(t *testing.T) {
 	if commit.NumParents() != 0 {
 		t.Fatalf("NumParents() = %d, want 0", commit.NumParents())
 	}
-	if commit.Message != "opax: initialize opax/v1" {
+	if strings.TrimSuffix(commit.Message, "\n") != "opax: initialize opax/v1" {
 		t.Fatalf("Message = %q, want %q", commit.Message, "opax: initialize opax/v1")
 	}
 	if commit.Author.Name != "Opax" || commit.Author.Email != "opax@local" {
@@ -689,7 +689,7 @@ func TestWriteRecordSessionPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
 	}
-	if commit.Message != "opax: write sessions "+recordID {
+	if strings.TrimSuffix(commit.Message, "\n") != "opax: write sessions "+recordID {
 		t.Fatalf("commit message = %q, want %q", commit.Message, "opax: write sessions "+recordID)
 	}
 	if commit.Author.Name != "Opax" || commit.Author.Email != "opax@local" {

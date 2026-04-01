@@ -119,7 +119,7 @@ Concurrency contract:
 - CAS blob writes use create-if-absent by content hash
 - `.git/opax.lock` is for bootstrap/admin coordination, not steady-state record writes
 
-Alternatively, a git library (go-git) performs these operations without shelling out.
+In the shipped boundary, these operations run through Opax's typed native Git backend adapter rather than a library-specific production transport.
 
 ### Read Mechanics
 

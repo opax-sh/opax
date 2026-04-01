@@ -81,22 +81,6 @@ func publishReference(backend *nativeGitBackend, nextRef, currentRef *plumbing.R
 	return backend.updateRefCAS(nextRef.Name(), nextRef.Hash(), oldHash)
 }
 
-func createReferenceIfAbsent(ctx *RepoContext, ref *plumbing.Reference) error {
-	if ref == nil {
-		return fmt.Errorf("git: publish ref: reference is nil")
-	}
-	if ref.Type() != plumbing.HashReference {
-		return fmt.Errorf("git: publish ref %s: unsupported reference type %s", ref.Name(), ref.Type())
-	}
-
-	backend, err := openRepoFromContext(ctx)
-	if err != nil {
-		return err
-	}
-	zero := plumbing.ZeroHash
-	return backend.updateRefCAS(ref.Name(), ref.Hash(), &zero)
-}
-
 func isGitUpdateRefConflict(stderr string) bool {
 	lower := strings.ToLower(strings.TrimSpace(stderr))
 	return strings.Contains(lower, "cannot lock ref") &&

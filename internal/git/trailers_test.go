@@ -266,6 +266,35 @@ func TestTrailerPolicyParseSaveTrailerFromCommitAppliesValidation(t *testing.T) 
 	}
 }
 
+func TestTrailerPolicyParseSaveTrailerFromCommitRejectsDuplicateMixedCaseTrailers(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	writeTrackedFile(t, repoRoot, "README.md", "hello\n")
+	runGit(t, repoRoot, "add", "README.md")
+
+	message := "feat: test\n\nbody\n\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV\nopax-save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAW\n"
+	messagePath := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
+	if err := os.WriteFile(messagePath, []byte(message), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", messagePath, err)
+	}
+	runGit(t, repoRoot, "commit", "-F", messagePath)
+
+	if _, _, err := internalgit.ParseSaveTrailer([]byte(message)); err == nil {
+		t.Fatal("ParseSaveTrailer() error = nil, want duplicate trailer validation error")
+	} else if !strings.Contains(err.Error(), "multiple Opax-Save trailers") {
+		t.Fatalf("ParseSaveTrailer() error = %v, want duplicate trailer message", err)
+	}
+
+	ctx := mustDiscoverRepo(t, repoRoot)
+	commitHash := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "HEAD"))
+	_, _, err := internalgit.ParseSaveTrailerFromCommit(ctx, commitHash)
+	if err == nil {
+		t.Fatal("ParseSaveTrailerFromCommit() error = nil, want duplicate trailer validation error")
+	}
+	if !strings.Contains(err.Error(), "multiple Opax-Save trailers") {
+		t.Fatalf("ParseSaveTrailerFromCommit() error = %v, want duplicate trailer message", err)
+	}
+}
+
 func TestTrailerPolicyParseSaveTrailerFromCommitWithRetainedTemplateComments(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	runGit(t, repoRoot, "config", "commit.cleanup", "verbatim")

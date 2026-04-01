@@ -155,18 +155,7 @@ func WalkRecords(ctx *RepoContext, visit func(locator RecordLocator) error) erro
 			return fmt.Errorf("git: walk records invalid collection %q: %w", collection, ErrMalformedTree)
 		}
 
-		collectionEntries, err := backend.readTree(collectionEntry.Hash)
-		if err != nil {
-			return fmt.Errorf(
-				"git: walk records load collection tree %q (%s): %v: %w",
-				collection,
-				collectionEntry.Hash,
-				err,
-				ErrMalformedTree,
-			)
-		}
-
-		if err := walkCollectionRecords(backend, branchTip, collection, collectionEntries, visit); err != nil {
+		if err := walkCollectionRecords(backend, branchTip, collection, collectionEntry.Hash, visit); err != nil {
 			return err
 		}
 	}
@@ -178,33 +167,36 @@ func walkCollectionRecords(
 	backend *nativeGitBackend,
 	branchTip plumbing.Hash,
 	collection string,
-	collectionEntries []gitTreeEntry,
+	collectionTreeHash plumbing.Hash,
 	visit func(locator RecordLocator) error,
 ) error {
-	for _, shardEntry := range collectionEntries {
-		shard := shardEntry.Name
-		if !entryIsTree(shardEntry) {
-			return fmt.Errorf("git: walk records shard %q/%q is not a tree: %w", collection, shard, ErrMalformedTree)
-		}
-		if !isRecordShard(shard) {
-			return fmt.Errorf("git: walk records shard %q/%q is invalid: %w", collection, shard, ErrMalformedTree)
-		}
+	entries, err := backend.readTreeRecursive(collectionTreeHash)
+	if err != nil {
+		return fmt.Errorf(
+			"git: walk records load collection tree %q (%s): %v: %w",
+			collection,
+			collectionTreeHash,
+			err,
+			ErrMalformedTree,
+		)
+	}
 
-		shardEntries, err := backend.readTree(shardEntry.Hash)
-		if err != nil {
-			return fmt.Errorf(
-				"git: walk records load shard tree %q/%q (%s): %v: %w",
-				collection,
-				shard,
-				shardEntry.Hash,
-				err,
-				ErrMalformedTree,
-			)
-		}
-
-		for _, recordEntry := range shardEntries {
-			recordID := recordEntry.Name
-			if !entryIsTree(recordEntry) {
+	seenRecordRoots := make(map[string]struct{})
+	for _, entry := range entries {
+		parts := strings.Split(entry.Path, "/")
+		switch len(parts) {
+		case 1:
+			shard := parts[0]
+			if !entryIsTree(entry.gitTreeEntry) {
+				return fmt.Errorf("git: walk records shard %q/%q is not a tree: %w", collection, shard, ErrMalformedTree)
+			}
+			if !isRecordShard(shard) {
+				return fmt.Errorf("git: walk records shard %q/%q is invalid: %w", collection, shard, ErrMalformedTree)
+			}
+		case 2:
+			shard := parts[0]
+			recordID := parts[1]
+			if !entryIsTree(entry.gitTreeEntry) {
 				return fmt.Errorf(
 					"git: walk records record root %q/%q/%q is not a tree: %w",
 					collection,
@@ -212,6 +204,9 @@ func walkCollectionRecords(
 					recordID,
 					ErrMalformedTree,
 				)
+			}
+			if !isRecordShard(shard) {
+				return fmt.Errorf("git: walk records shard %q/%q is invalid: %w", collection, shard, ErrMalformedTree)
 			}
 			if err := validateRecordID(collection, recordID); err != nil {
 				return fmt.Errorf("git: walk records invalid record ID %q/%q/%q: %w", collection, shard, recordID, ErrMalformedTree)
@@ -225,6 +220,10 @@ func walkCollectionRecords(
 					ErrMalformedTree,
 				)
 			}
+			if _, exists := seenRecordRoots[recordRoot]; exists {
+				return fmt.Errorf("git: walk records duplicate record root %q: %w", recordRoot, ErrMalformedTree)
+			}
+			seenRecordRoots[recordRoot] = struct{}{}
 
 			if err := visit(RecordLocator{
 				BranchTip:  branchTip,

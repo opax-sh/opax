@@ -140,10 +140,10 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 | ---------- | ----- | ------ | -- |
 | A | Discovery and backend gate | Done | TBD |
 | B | Ref primitives and branch lifecycle | Done | TBD |
-| C | Object reads and batch behavior | In Progress | TBD |
-| D | Record reads and walks | Planned | TBD |
-| E | Record writes and notes | Planned | TBD |
-| F | Trailers and cleanup | Planned | TBD |
+| C | Object reads and batch behavior | Done | TBD |
+| D | Record reads and walks | Done | TBD |
+| E | Record writes and notes | Done | TBD |
+| F | Trailers and cleanup | Done | TBD |
 
 ### Checkpoint A Decision Delta (2026-04-01)
 
@@ -170,6 +170,39 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
   - `ReadRecord` measured operation: total git calls `<= 15`, exactly one `cat-file --batch`, and zero hash-form `cat-file blob <40-hex>` loops.
   - `ReadFileAtPath` measured operation: total git calls `<= 13`.
 - Warm the shared Git version gate before call-count measurement and clear instrumentation logs so thresholds apply only to measured reads.
+
+### Checkpoint D Decision Delta (2026-04-01)
+
+- Replace `WalkRecords` per-shard subtree reads with one recursive tree read per collection (`ls-tree -r -t`) while keeping typed `ErrMalformedTree` fail-closed behavior.
+- Preserve shard and record-root structural validation semantics during recursive traversal:
+  - depth-1 shard entries must be trees and valid shard names
+  - depth-2 record roots must be trees, pass `validateRecordID`, and match deterministic `deriveRecordRoot`
+- Emit each record locator exactly once, in deterministic traversal order, and fail closed on duplicate record roots.
+- Enforce checkpoint D hot-read call-count gate:
+  - `WalkRecords` measured operation: total git calls `<= 12` for the canonical multi-collection fixture and exactly one recursive `ls-tree` call per discovered collection.
+
+### Checkpoint E Decision Delta (2026-04-01)
+
+- Keep checkpoint E scoped to explicit native-backend write/notes proof gates; no exported `internal/git` API or runtime-policy changes land in this slice.
+- Add deterministic CAS-retry checkpoint coverage by forcing one real competing `update-ref` state change on:
+  - `refs/heads/opax/v1` record publication
+  - `refs/notes/opax/{namespace}` note publication
+- Keep note validation and malformed-state policy unchanged while making the checkpoint gate explicit:
+  - invalid namespaces still fail before Git execution
+  - nested note refs still map to `ErrMalformedNote`
+  - malformed note payloads and note refs that do not point to commits still map to `ErrMalformedNote`
+- Keep linked-worktree checkpoint coverage explicit for write paths:
+  - `WriteRecord` preserves working-tree/index state while publishing through the shared native backend
+  - `WriteNote`, `ReadNote`, `ListNotes`, and `ListNoteNamespaces` remain linked-worktree safe on the canonical `extensions.worktreeConfig=true` fixture
+
+### Checkpoint F Decision Delta (2026-04-01)
+
+- Keep `ParseSaveTrailerFromCommit` on the existing native backend path via `openRepoFromContext()` plus shared commit-read helpers; no new production transport refactor lands in this slice.
+- Close trailer proof gates with committed-message validation parity:
+  - malformed committed `Opax-Save` values still fail hard
+  - duplicate or mixed-case committed `Opax-Save` trailers still fail hard with the same Go-owned validation contract as `ParseSaveTrailer`
+- Add a repo-enforced import guard so non-test `internal/git` production files may keep only the frozen FEAT-0012 compatibility import surface `github.com/go-git/go-git/v5/plumbing`.
+- Treat any new non-test `internal/git` import of top-level `github.com/go-git/go-git/v5` or other `go-git` transport/open-read-write packages as a checkpoint-F failure; broader type/API decoupling remains deferred to FEAT-0013.
 
 ---
 

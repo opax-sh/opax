@@ -36,7 +36,10 @@ Use it as the one-page status rollup across all epics and features.
 
 - FEAT-0012 checkpoint A (discovery/backend runtime-policy hardening) is done.
 - FEAT-0012 checkpoint B (ref primitives and branch lifecycle) is done.
-- FEAT-0012 checkpoint C (object reads and batch behavior) is in progress.
+- FEAT-0012 checkpoint C (object reads and batch behavior) is done.
+- FEAT-0012 checkpoint D (record reads and walks) is done.
+- FEAT-0012 checkpoint E (record writes and notes) is done.
+- FEAT-0012 checkpoint F (trailers and cleanup) is done.
 - FEAT-0013 is committed as a blocked follow-up from FEAT-0012 (two-stage API/type decoupling from `go-git`) and starts only after FEAT-0012 exit gates are satisfied.
 
 

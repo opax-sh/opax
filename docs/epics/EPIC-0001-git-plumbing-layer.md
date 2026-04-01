@@ -102,7 +102,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 | FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/notes/opax/`* with per-namespace CAS retry      | Mutable metadata layer                        |
 | FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
 | FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
-| FEAT-0012  | Native backend adapter migration | Make native Git the production backend transport behind a typed `internal/git` adapter | Preserve typed contracts while replacing transport |
+| FEAT-0012  | Native backend adapter migration | Make native Git the production backend transport behind a typed `internal/git` adapter | Checkpointed slices A-F with canonical-fixture CI gates; preserve typed contracts during transport swap |
 
 
 ---
@@ -118,6 +118,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 - write branch commits on `opax/v1`
 - parse committed commit message text for trailers
 - use the shared typed native backend adapter for production repository/object/ref transport
+- keep exported `go-git` surface types stable during FEAT-0012 (decoupling is a follow-up feature)
 - read and write Opax-specific git config values
 
 It may **not**:
@@ -263,6 +264,7 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 - `FEAT-0010` inserts exactly one valid `Opax-Save` trailer and parses it back from commits
 - `FEAT-0011` preserves stealth default: plain `git fetch` and `git push` remain code-centric
 - `FEAT-0012` establishes native Git as the production transport with typed adapter-backed semantics
+- `FEAT-0012` checkpoint slices are CI-gated by canonical linked-worktree compatibility tests on Linux and macOS, with hard call-count ceilings for read-path slices
 - All git writes use machine identity `Opax <opax@local>`
 - No code in `internal/git/` checks out or modifies the working tree
 

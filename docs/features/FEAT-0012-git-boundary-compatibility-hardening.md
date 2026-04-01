@@ -10,55 +10,60 @@
 
 ## Problem
 
-`go-git` repository open behavior is not a reliable production source of truth for extension-enabled linked worktrees (`extensions.worktreeConfig=true`).
+`go-git` open/read behavior is not a reliable production source of truth for extension-enabled linked worktrees (`extensions.worktreeConfig=true`).
 
-The previous compatibility framing focused on path-specific opens and fallback elimination, but the root problem is backend ownership: `internal/git` needs one production transport with Git-native repository semantics while preserving Opax-owned typed contracts.
+FEAT-0012 resolves this as a backend-ownership problem, not a per-feature fallback problem: `internal/git` moves to one native-Git production transport while preserving Opax-owned typed contracts.
 
 ---
 
-## Design
+## Scope
 
-### Boundary reset at discovery
+### In Scope
+
+- Migrate production `internal/git` transport to one unexported typed native backend.
+- Keep exported `internal/git` API signatures and typed error surfaces stable in this feature.
+- Preserve linked-worktree correctness, branch identity/sentinel validation, note namespace policy, and trailer validation policy.
+- Add CI-enforced checkpoint delivery gates for the migration slices.
+
+### Out of Scope
+
+- Exported type/API decoupling from `go-git` (deferred to FEAT-0013).
+- Product-facing runtime knobs for backend binary selection.
+- Dual production backends or fallback mode.
+
+---
+
+## Design Contracts
+
+### Discovery Contract
 
 - `DiscoverRepo` derives `RepoContext` from native Git `rev-parse` facts.
-- Discovery resolves and validates:
-  - worktree root
-  - git dir
-  - common git dir
-  - bare/non-bare state
-  - linked-worktree status
-- Worktree-scoped execution is the default context for commands that must honor worktree-local config.
+- Discovery validates worktree root, git dir, common git dir, bare/non-bare state, and linked-worktree status.
+- Worktree-scoped execution is default for commands that must honor worktree-local config.
+- Discovery inconsistencies fail closed.
 
-### Single typed native backend in `internal/git`
+### Backend Boundary Contract
 
-- One unexported native backend owns:
-  - command execution
-  - stdout/stderr capture
-  - exit-code handling
-  - Git-version checks
-  - stdout parsing for refs, commits, trees, blobs, and trailers
-- Feature code calls typed helpers, not raw command strings.
-- Primary plumbing commands:
-  - `rev-parse`
-  - `for-each-ref`
-  - `cat-file`
-  - `ls-tree`
-  - `hash-object`
-  - `mktree`
-  - `commit-tree`
-  - `update-ref`
-  - `interpret-trailers`
+- One unexported native backend in `internal/git` owns command execution, stdout/stderr capture, parsing, and exit handling.
+- Feature code calls typed helpers, never raw command strings.
+- Primary plumbing commands: `rev-parse`, `for-each-ref`, `cat-file`, `ls-tree`, `hash-object`, `mktree`, `commit-tree`, `update-ref`, `interpret-trailers`.
 
-### Contract preservation above backend
+### Runtime Policy
 
-- Exported `internal/git` APIs remain unchanged.
-- Typed error contracts stay stable:
-  - `ErrTipChanged`
-  - `ErrRecordExists`
-  - `ErrRecordNotFound`
-  - `ErrFileNotFound`
-  - `ErrMalformedTree`
-  - note not-found/conflict/malformed surfaces
+- Enforce a shared fail-fast Git version gate (`>=2.30.0`) at backend init.
+- Cache both successful and failed gate outcomes.
+- Allow gate-cache reset only for test/CI harnesses via guarded internal test/CI wiring.
+- Force Git subprocess locale to `LC_ALL=C` and `LANG=C`.
+- Support private test/CI git binary override `OPAX_GIT_BIN`; do not accept it in normal runtime paths.
+- Include sanitized stderr context in wrapped errors:
+  - scrub absolute filesystem paths
+  - keep refs/object IDs visible
+  - enforce one global cap (target default: 512 bytes, implementation detail)
+
+### API and Validation Contract
+
+- Exported `internal/git` APIs remain unchanged for FEAT-0012.
+- Exported `go-git` surface types are frozen for FEAT-0012 compatibility.
 - Opax validation remains in Go:
   - collection and record ID validation
   - path traversal rejection
@@ -66,60 +71,79 @@ The previous compatibility framing focused on path-specific opens and fallback e
   - notes namespace and payload validation
   - `Opax-Save` value validation
   - `opax/v1` sentinel validation and malformed-tree detection
+- Typed errors remain stable, including:
+  - `ErrTipChanged`
+  - `ErrRecordExists`
+  - `ErrRecordNotFound`
+  - `ErrFileNotFound`
+  - `ErrMalformedTree`
+  - note not-found/conflict/malformed surfaces
 
-### Batch-read expectation
+### Error Translation Contract
 
-- Read paths avoid per-object process churn in hot loops.
-- Recursive tree traversals and blob batch reads are handled through typed backend helpers.
-- "One subprocess per blob/tree" is treated as a backend design bug, not an acceptable steady state.
+- Error mapping is driven by typed post-conditions in Go, not stderr text.
+- Structured CAS probing is primary for `update-ref` conflict detection.
+- Stderr matching is minimal fallback for ambiguous failures.
+- Ambiguous CAS outcomes map to an internal unknown-outcome error, not `ErrTipChanged`.
+- Unknown-outcome CAS errors stay internal in FEAT-0012.
+- Backend classification stays fail-closed on malformed or ambiguous Git output.
+- Ambiguous internal CAS outcomes remain debug-level diagnostics, not user-facing CLI output.
 
-### Implementation Plan
+### Read-Path Performance Contract
 
-Defaults:
+- Recursive tree traversals and blob reads use batch-friendly backend helpers.
+- Subprocess-per-object loops are regressions.
+- Hot read paths are protected by hard call-count ceilings.
 
-- FEAT-0010 lands first as a clean trailer-only feature branch.
-- FEAT-0012 work continues on `FEAT-0012-native-git-backend-adapter`.
-- Rebase FEAT-0012 onto `main` only after FEAT-0010 lands.
+---
+
+## Ordered Implementation Plan (A -> F)
+
+### Preconditions
+
+- FEAT-0010 is already landed independently.
 - No production dual-backend mode.
-- `go-git` may remain in tests temporarily, but not as the production semantics oracle.
+- `go-git` may remain only as temporary test oracle support, not production transport.
 
-Execution order:
+### Checkpoints
 
-1. discovery and repo context
-2. ref resolution + `opax/v1` bootstrap/validation
-3. object read path for commits/trees/blobs
-4. record reads and tree walks
-5. record writes and notes publication
-6. trailer parsing from committed commits
-7. remove remaining production `go-git` transport usage from `internal/git`
+| Checkpoint | Scope | Required migration work | Required proof gate |
+| ---------- | ----- | ----------------------- | ------------------- |
+| A | Discovery and backend gate | Native discovery from `rev-parse`; shared runtime gate policy; locale and binary-resolution policy wiring | Linked-worktree discovery parity; gate-policy tests |
+| B | Ref primitives and branch lifecycle | Migrate `EnsureOpaxBranch`, `GetOpaxBranchTip`, `ValidateOpaxBranch`; structured CAS conflict probing | Branch bootstrap/validation/CAS conflict parity |
+| C | Object reads and batch behavior | Migrate commit/tree/blob reads to backend helpers | Malformed object parity; call-count ceilings for hot reads |
+| D | Record reads and walks | Migrate `ReadRecord`, `ReadFileAtPath`, `WalkRecords` | Record read/walk parity; call-count ceilings |
+| E | Record writes and notes | Migrate write flows and note read/write/list operations | Write/notes parity; CAS retry and namespace validation parity |
+| F | Trailers and cleanup | Migrate committed trailer reads (`ParseSaveTrailerFromCommit`); preserve malformed `Opax-Save` hard errors; remove remaining production `go-git` transport usage | Trailer policy parity; production transport cleanup complete |
 
-Phase gates:
+### Delivery and Merge Policy
 
-- Discovery and runtime gate:
-  - keep `DiscoverRepo` native-Git derived
-  - derive `RepoContext` from `rev-parse` facts
-  - enforce minimum supported Git version in one shared backend gate
-  - preserve linked-worktree, common-git-dir, and bare-repo behavior contracts
-- Ref and branch primitives:
-  - route ref reads and CAS updates through the typed backend
-  - migrate `EnsureOpaxBranch`, `GetOpaxBranchTip`, and `ValidateOpaxBranch`
-  - preserve sentinel validation, symbolic-ref rejection, and typed conflict behavior
-- Object read path and batch semantics:
-  - migrate commit/tree/blob reads to backend helpers
-  - keep batch-friendly tree walk/blob read behavior for hot paths
-  - treat subprocess-per-object loops as regressions
-- Record reads and walks:
-  - migrate `ReadRecord`, `ReadFileAtPath`, and `WalkRecords`
-  - preserve deterministic path derivation, typed not-found behavior, and malformed-tree errors
-- Record writes and notes:
-  - migrate write-tree/write-commit/write-ref flows behind the backend
-  - migrate notes read/write/list operations
-  - preserve CAS retry behavior, note conflict semantics, and namespace validation
-- Trailer commit reads and final cleanup:
-  - keep FEAT-0010 hook-time trailer mutation scoped to trailer semantics
-  - migrate committed trailer reads needed by FEAT-0012 onto the backend
-  - remove remaining production `go-git` transport usage from `internal/git`
-  - keep exported signatures unchanged
+- Use one stacked branch per slice.
+- Every slice PR must update FEAT checkpoint state and `docs/index.md` in the same PR.
+- Every slice PR is merge-blocked on canonical-fixture compatibility checks.
+- Call-count ceiling checks are merge-blocking for C, D, and any later slice touching read paths.
+- No special rollback playbook; standard PR/revert discipline is intentional.
+- PR titles must include checkpoint label (`A` through `F`).
+- Each slice PR must include a FEAT decision-delta note for checkpoint-level policy changes.
+
+### Checkpoint Tracking Rules
+
+Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
+
+- Set `Done` only after PR merge and FEAT doc update in that same merge.
+- `Blocked` status must include a one-line blocker reason in the `Status` cell.
+- `PR` values must be full PR URLs once a PR exists.
+
+### Checkpoint Status Tracker
+
+| Checkpoint | Scope | Status | PR |
+| ---------- | ----- | ------ | -- |
+| A | Discovery and backend gate | Planned | TBD |
+| B | Ref primitives and branch lifecycle | Planned | TBD |
+| C | Object reads and batch behavior | Planned | TBD |
+| D | Record reads and walks | Planned | TBD |
+| E | Record writes and notes | Planned | TBD |
+| F | Trailers and cleanup | Planned | TBD |
 
 ---
 
@@ -127,7 +151,7 @@ Phase gates:
 
 - Single binary distribution remains unchanged.
 - Standard Git environment is required at runtime.
-- Minimum supported Git version is explicit and enforced: `2.30.0`.
+- Minimum supported Git version: `2.30.0`.
 
 ---
 
@@ -137,23 +161,32 @@ Phase gates:
 - `EnsureOpaxBranch`, `GetOpaxBranchTip`, `ValidateOpaxBranch` run through the native backend.
 - `WriteRecord`, `ReadRecord`, `ReadFileAtPath`, `WalkRecords` run through the native backend.
 - `WriteNote`, `ReadNote`, `ListNotes`, `ListNoteNamespaces` run through the native backend.
-- `ParseSaveTrailerFromCommit` reads committed messages via the native backend and preserves Opax validation policy.
+- `ParseSaveTrailerFromCommit` reads committed messages via native backend and preserves Opax validation policy.
 - Production `internal/git` transport does not depend on `go-git` repository open/read/write flows.
 
 ---
 
 ## Test Plan
 
-- Backend parity coverage for:
-  - `DiscoverRepo`
-  - `EnsureOpaxBranch`, `GetOpaxBranchTip`, `ValidateOpaxBranch`
-  - `WriteRecord`, `ReadRecord`, `ReadFileAtPath`, `WalkRecords`
-  - `WriteNote`, `ReadNote`, `ListNotes`, `ListNoteNamespaces`
-  - trailer parsing/mutation behavior
+- Keep one canonical linked-worktree fixture (`extensions.worktreeConfig=true`) across all slices.
+- Run merge-gate checks on Linux and macOS.
+- Require one fixture-driven test per exported API surface touched by a slice.
+- Maintain parity coverage for:
+  - discovery
+  - branch primitives
+  - record read/write APIs
+  - notes APIs
+  - trailer parse/mutation behavior
   - CAS conflict/retry behavior
-  - malformed ref/tree/blob/note cases
-- Linked-worktree tests remain first-class, with native backend behavior as the subject under test.
-- CI defines a supported Git-version matrix with a pinned minimum version.
+  - malformed ref/tree/blob/note behavior
+- Enforce non-mutation invariants with one shared before/after harness (working tree and index).
+- Enforce hard call-count ceilings for hot read paths.
+- Run locale-hardening tests under non-`C` process locale and verify forced `LC_ALL=C`/`LANG=C` behavior.
+- Keep call-count thresholds defined directly in Go tests.
+- Keep compatibility fixtures deterministic (no random data in merge-gate tests).
+- Keep performance merge contracts scoped to call-count invariants (no wall-clock gates).
+- Keep `go-git` out of new tests unless explicitly tagged temporary oracle coverage.
+- Add CI check that production `internal/git` paths do not import `go-git` transport/open-read-write dependencies.
 
 Verification commands:
 
@@ -162,13 +195,27 @@ Verification commands:
 
 ---
 
-## Notes
-
-- `go-git` may remain in tests as temporary fixture/scaffolding support, but not as the production semantics oracle.
-- This feature is a backend migration wave, not a per-feature shell-out fallback strategy.
-
 ## Exit Criteria
 
-- production `internal/git` paths no longer depend on `go-git` repository open/read/write transport
-- FEAT-0010 trailer scope remains independent and already landed
-- FEAT-0012 docs, epic docs, ADRs, and `docs/index.md` stay synchronized with the current migration state
+- Production `internal/git` paths no longer depend on `go-git` repository open/read/write transport.
+- FEAT-0010 trailer scope remains independent and landed.
+- FEAT-0012 docs, epic docs, ADRs, and `docs/index.md` are synchronized with migration state.
+- Temporary `go-git` oracle usage removal trigger is satisfied:
+  - linked-worktree compatibility suite green under native backend
+  - malformed object/ref/note matrix green under native backend
+  - hot read-path call-count invariants green
+  - Git version matrix green at minimum supported and latest stable
+- All checkpoints (`A` through `F`) are `Done` with no unresolved checkpoint policy decisions.
+
+---
+
+## Follow-up Feature Commitment (FEAT-0013)
+
+- Create follow-up feature `FEAT-0013` (API/type decoupling from `go-git`) in blocked status.
+- FEAT-0013 entry criteria match FEAT-0012 temporary oracle removal trigger.
+- FEAT-0013 executes in two tracked stages:
+  - Stage 1: exported contract decoupling from `go-git/plumbing`, with runtime behavior and typed errors preserved.
+  - Stage 2: remaining internal `go-git/plumbing` dependency cleanup while keeping Stage 1 API stable.
+- FEAT-0013 tracking checklist (initial):
+  - [ ] Stage 1 contract changes merged with caller compatibility notes.
+  - [ ] Stage 2 internal cleanup merged without API regressions.

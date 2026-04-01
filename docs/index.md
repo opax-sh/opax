@@ -32,6 +32,10 @@ Use it as the one-page status rollup across all epics and features.
 | FEAT-0011 | EPIC-0001 | Backlog   | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)       |
 | FEAT-0012 | EPIC-0001 | In Progress | [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md) |
 
+### Planned Follow-up
+
+- FEAT-0013 is committed as a blocked follow-up from FEAT-0012 (two-stage API/type decoupling from `go-git`) and starts only after FEAT-0012 exit gates are satisfied.
+
 
 ## Update Rules
 

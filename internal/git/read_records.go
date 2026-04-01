@@ -44,7 +44,7 @@ func ReadRecord(ctx *RepoContext, collection, recordID string) (*ReadResult, err
 	}
 	blobContents, err := backend.readBlobsBatch(hashes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("git: read record root %q batch blob read: %v: %w", recordRoot, err, ErrMalformedTree)
 	}
 
 	files := make(map[string][]byte, len(blobByPath))

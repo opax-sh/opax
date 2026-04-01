@@ -43,7 +43,8 @@ var (
 	// ErrNoteConflict indicates the namespace ref changed during note publication.
 	ErrNoteConflict = errors.New("git: note ref changed")
 
-	errReferenceChanged = errors.New("git: reference changed")
+	errReferenceChanged    = errors.New("git: reference changed")
+	errReferenceCASUnknown = errors.New("git: reference update outcome unknown")
 )
 
 const (

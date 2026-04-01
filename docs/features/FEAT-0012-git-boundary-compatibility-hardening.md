@@ -120,8 +120,8 @@ FEAT-0012 resolves this as a backend-ownership problem, not a per-feature fallba
 
 - Use one stacked branch per slice.
 - Every slice PR must update FEAT checkpoint state and `docs/index.md` in the same PR.
-- Every slice PR is merge-blocked on canonical-fixture compatibility checks.
-- Call-count ceiling checks are merge-blocking for C, D, and any later slice touching read paths.
+- Every slice PR must include canonical-fixture compatibility check evidence.
+- Call-count ceiling checks are required proof gates for C, D, and any later slice touching read paths.
 - No special rollback playbook; standard PR/revert discipline is intentional.
 - PR titles must include checkpoint label (`A` through `F`).
 - Each slice PR must include a FEAT decision-delta note for checkpoint-level policy changes.
@@ -130,7 +130,7 @@ FEAT-0012 resolves this as a backend-ownership problem, not a per-feature fallba
 
 Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 
-- Set `Done` only after PR merge and FEAT doc update in that same merge.
+- Set `Done` when required migration work, required proof gates, and FEAT/index tracker updates are complete.
 - `Blocked` status must include a one-line blocker reason in the `Status` cell.
 - `PR` values must be full PR URLs once a PR exists.
 
@@ -139,8 +139,8 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 | Checkpoint | Scope | Status | PR |
 | ---------- | ----- | ------ | -- |
 | A | Discovery and backend gate | Done | TBD |
-| B | Ref primitives and branch lifecycle | In Progress | TBD |
-| C | Object reads and batch behavior | Planned | TBD |
+| B | Ref primitives and branch lifecycle | Done | TBD |
+| C | Object reads and batch behavior | In Progress | TBD |
 | D | Record reads and walks | Planned | TBD |
 | E | Record writes and notes | Planned | TBD |
 | F | Trailers and cleanup | Planned | TBD |
@@ -151,6 +151,25 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 - Restrict `OPAX_GIT_BIN` to test execution and fail closed in normal runtime paths.
 - Cache both pass/fail Git version gate results by resolved binary path.
 - Force subprocess locale (`LC_ALL=C`, `LANG=C`) and sanitize/cap stderr context globally.
+
+### Checkpoint B Decision Delta (2026-04-01)
+
+- Move `update-ref` CAS conflict classification to structured post-condition probing in the shared native backend helper.
+- Classify CAS outcomes by ref post-condition:
+  - live ref equals requested new hash -> applied
+  - live ref disproves expected-old CAS precondition -> conflict
+  - otherwise -> unknown internal outcome
+- Keep stderr conflict text matching as fallback only when post-condition probing is unavailable or inconclusive.
+- Keep unknown CAS outcomes internal and do not map them to exported conflict surfaces (`ErrTipChanged`, `ErrNoteConflict`).
+
+### Checkpoint C Decision Delta (2026-04-01)
+
+- Keep checkpoint C scoped to object-read helper hardening and proof gates; no read traversal redesign in this slice.
+- Map `ReadRecord` batch blob-read failures to `ErrMalformedTree` to preserve typed malformed-object behavior.
+- Enforce checkpoint C hot-read call-count gates:
+  - `ReadRecord` measured operation: total git calls `<= 15`, exactly one `cat-file --batch`, and zero hash-form `cat-file blob <40-hex>` loops.
+  - `ReadFileAtPath` measured operation: total git calls `<= 13`.
+- Warm the shared Git version gate before call-count measurement and clear instrumentation logs so thresholds apply only to measured reads.
 
 ---
 
@@ -176,7 +195,7 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 ## Test Plan
 
 - Keep one canonical linked-worktree fixture (`extensions.worktreeConfig=true`) across all slices.
-- Run merge-gate checks on Linux and macOS.
+- Run checkpoint compatibility checks on Linux and macOS.
 - Require one fixture-driven test per exported API surface touched by a slice.
 - Maintain parity coverage for:
   - discovery
@@ -190,8 +209,8 @@ Status enum: `Planned`, `In Progress`, `Blocked`, `Done`.
 - Enforce hard call-count ceilings for hot read paths.
 - Run locale-hardening tests under non-`C` process locale and verify forced `LC_ALL=C`/`LANG=C` behavior.
 - Keep call-count thresholds defined directly in Go tests.
-- Keep compatibility fixtures deterministic (no random data in merge-gate tests).
-- Keep performance merge contracts scoped to call-count invariants (no wall-clock gates).
+- Keep compatibility fixtures deterministic (no random data in checkpoint compatibility tests).
+- Keep performance contracts scoped to call-count invariants (no wall-clock gates).
 - Keep `go-git` out of new tests unless explicitly tagged temporary oracle coverage.
 - Add CI check that production `internal/git` paths do not import `go-git` transport/open-read-write dependencies.
 

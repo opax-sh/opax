@@ -209,6 +209,14 @@ func (b *nativeGitBackend) isSymbolicRef(refName plumbing.ReferenceName) (bool, 
 	return false, "", wrapGitStderrError(fmt.Sprintf("git: resolve symbolic ref %s", refName), stderr, err)
 }
 
+type refCASOutcome uint8
+
+const (
+	refCASOutcomeUnknown refCASOutcome = iota
+	refCASOutcomeApplied
+	refCASOutcomeConflict
+)
+
 func (b *nativeGitBackend) updateRefCAS(refName plumbing.ReferenceName, newHash plumbing.Hash, oldHash *plumbing.Hash) error {
 	expectedOld := plumbing.ZeroHash
 	if oldHash != nil {
@@ -226,11 +234,68 @@ func (b *nativeGitBackend) updateRefCAS(refName plumbing.ReferenceName, newHash 
 		return nil
 	}
 
+	outcome, probeErr := b.probeUpdateRefCASOutcome(refName, newHash, expectedOld)
+	if probeErr == nil {
+		switch outcome {
+		case refCASOutcomeApplied:
+			return nil
+		case refCASOutcomeConflict:
+			return errReferenceChanged
+		case refCASOutcomeUnknown:
+			return wrapGitStderrError(
+				fmt.Sprintf("git: update ref %s", refName),
+				stderr,
+				fmt.Errorf("%w: post-condition probe inconclusive", errReferenceCASUnknown),
+			)
+		}
+	}
+
 	stderrText := normalizeGitStderr(stderr)
 	if isGitUpdateRefConflict(stderrText) {
 		return errReferenceChanged
 	}
-	return wrapGitStderrError(fmt.Sprintf("git: update ref %s", refName), stderr, err)
+	if probeErr != nil {
+		return wrapGitStderrError(
+			fmt.Sprintf("git: update ref %s", refName),
+			stderr,
+			fmt.Errorf("%w: post-condition probe failed: %v", errReferenceCASUnknown, probeErr),
+		)
+	}
+	return wrapGitStderrError(
+		fmt.Sprintf("git: update ref %s", refName),
+		stderr,
+		fmt.Errorf("%w", errReferenceCASUnknown),
+	)
+}
+
+func (b *nativeGitBackend) probeUpdateRefCASOutcome(
+	refName plumbing.ReferenceName,
+	newHash plumbing.Hash,
+	expectedOld plumbing.Hash,
+) (refCASOutcome, error) {
+	currentRef, err := b.readRef(refName)
+	if err != nil {
+		return refCASOutcomeUnknown, err
+	}
+	return classifyRefCASOutcome(currentRef, newHash, expectedOld), nil
+}
+
+func classifyRefCASOutcome(currentRef *plumbing.Reference, newHash, expectedOld plumbing.Hash) refCASOutcome {
+	if currentRef != nil && currentRef.Hash() == newHash {
+		return refCASOutcomeApplied
+	}
+
+	if expectedOld == plumbing.ZeroHash {
+		if currentRef != nil {
+			return refCASOutcomeConflict
+		}
+		return refCASOutcomeUnknown
+	}
+
+	if currentRef == nil || currentRef.Hash() != expectedOld {
+		return refCASOutcomeConflict
+	}
+	return refCASOutcomeUnknown
 }
 
 func (b *nativeGitBackend) ensureCommitExists(hash plumbing.Hash) error {

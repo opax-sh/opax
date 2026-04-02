@@ -52,6 +52,8 @@ type RefspecViolationCode string
 
 const (
     RefspecViolationMissingDefaultFetchExclusion RefspecViolationCode = "missing_default_fetch_exclusion"
+    RefspecViolationDefaultFetchMatchesOpaxRefs  RefspecViolationCode = "default_fetch_matches_opax_refs"
+    RefspecViolationRemotePushMirrorEnabled      RefspecViolationCode = "remote_push_mirror_enabled"
     RefspecViolationOpaxRefsInRemotePush         RefspecViolationCode = "opax_refs_in_remote_push"
     RefspecViolationInvalidOpaxManagedConfig     RefspecViolationCode = "invalid_opax_managed_config"
 )
@@ -141,6 +143,7 @@ Rules:
 - append the exclusion only when missing
 - do not synthesize default branch mappings when baseline is missing
 - do not normalize/rewrite unrelated user fetch lines
+- reject fetch refspecs that still reach `refs/opax/*`, `refs/notes/opax/*`, or other broad `refs/*` coverage after the managed exclusion is considered
 - duplicate managed exclusions are invalid config (`ErrInvalidRefspecConfig`)
 
 ### Explicit Opax Fetch Refspecs
@@ -170,18 +173,20 @@ Stored under `opax.remote.<name>.push`:
 
 ### Default-Sync Isolation Guardrails
 
-`ApplyRefspecPlan` must fail before writes if `remote.<name>.push` includes Opax refs.
+`ApplyRefspecPlan` must fail before writes if plain Git defaults still have an Opax delivery path.
 
 - return `ErrDefaultSyncIsolationViolation`
 - include concrete offending values in error context (sanitized and bounded)
 - do not mutate `remote.<name>.push` automatically in Phase 0
+- reject `remote.<name>.mirror=true`
+- reject default fetch refspecs that still match Opax refs after the managed branch exclusion would be applied
 
 ### Read Contract
 
 `ReadRefspecState` is the only read API for FEAT-0011 (clean cutover; `ReadRefspecPlan` is removed).
 
 - reports `DefaultFetchExclusionPresent`
-- reports derived `DefaultSyncIsolationEnforced` (`true` only when exclusion is present and remote push has no Opax refs)
+- reports derived `DefaultSyncIsolationEnforced` (`true` only when the managed exclusion is present exactly once, push mirror is off, and plain fetch/push have no Opax delivery path)
 - reports stable machine-readable violation codes
 - canonicalizes returned Opax fetch/push order to the canonical plan order
 - fails closed on invalid Opax-managed fetch/push config
@@ -206,6 +211,8 @@ Apply semantics are **converge-on-retry**:
 - **Remote name invalid** - return `ErrRemoteNameInvalid`; do not probe git config.
 - **Git version below supported minimum** - fail before any config write.
 - **`remote.<name>.fetch` baseline missing positive branch mapping** - return `ErrInvalidRefspecConfig`.
+- **`remote.<name>.fetch` still reaches Opax refs after the managed exclusion** - return `ErrDefaultSyncIsolationViolation` with offending values.
+- **`remote.<name>.mirror=true`** - return `ErrDefaultSyncIsolationViolation`.
 - **`remote.<name>.push` contains Opax refs** - return `ErrDefaultSyncIsolationViolation` with offending values.
 - **Managed exclusion duplicated** - return `ErrInvalidRefspecConfig`; unmanaged fetch duplication remains untouched.
 - **Malformed Opax-managed fetch/push entries** - fail closed with `ErrInvalidRefspecConfig`.
@@ -219,10 +226,10 @@ Apply semantics are **converge-on-retry**:
 - `BuildRefspecPlan` is pure: validates remote name format only and returns canonical managed values.
 - `ApplyRefspecPlan` gates writes on supported git version, existing remote, fetch-baseline validity, and default-sync isolation checks.
 - `ApplyRefspecPlan` takes `.git/opax.lock`, revalidates mutable conditions under lock, and applies only repo-wide local config mutations.
-- `ApplyRefspecPlan` preserves unrelated user remote config and never writes Opax refs to `remote.<name>.push`.
+- `ApplyRefspecPlan` preserves unrelated user remote config and never writes Opax refs to `remote.<name>.push` or rewrites `remote.<name>.mirror`.
 - `ApplyRefspecPlan` reconciles Opax-owned multivars to canonical fetch/push sets and converges on retry without managed duplication.
-- `ApplyRefspecPlan` hard-fails with typed errors for isolation/config violations, including offending `remote.<name>.push` Opax refs.
-- `ReadRefspecState` is the sole read surface and returns canonical Opax sets plus derived isolation boolean and stable violation codes.
+- `ApplyRefspecPlan` hard-fails with typed errors for isolation/config violations, including push mirror mode and offending fetch/push refspecs that keep plain Git defaults Opax-aware.
+- `ReadRefspecState` is the sole read surface and returns canonical Opax sets plus derived isolation boolean and stable violation codes for missing exclusion, fetch leakage, push mirror, and push leakage.
 - Reapplying the same plan converges to the same final `RefspecState`.
 
 ---
@@ -237,11 +244,14 @@ Multivar assertions use set equality plus explicit invariant checks, not strict 
 | `TestBuildRefspecPlanRemoteNameValidation` | Planner validation | Invalid names fail with `ErrRemoteNameInvalid` |
 | `TestApplyRefspecPlanVersionGateNoWrites` | Fail-fast runtime compatibility | Unsupported git fails before any config mutation |
 | `TestApplyRefspecPlanMissingRemote` | Remote validation | Missing remote fails with `ErrRemoteMissing` |
+| `TestApplyRefspecPlanRejectsRemotePushMirror` | Push-mirror isolation guard | `remote.<name>.mirror=true` fails with `ErrDefaultSyncIsolationViolation` |
 | `TestApplyRefspecPlanRejectsRemotePushOpaxRefs` | Default-sync isolation guard | Fails with `ErrDefaultSyncIsolationViolation` and offending values |
+| `TestApplyRefspecPlanRejectsRemoteFetchOpaxRefs` | Fetch-side isolation guard | Broad/default fetch refspecs that still reach Opax refs fail with `ErrDefaultSyncIsolationViolation` |
 | `TestApplyRefspecPlanRequiresPositiveFetchBaseline` | Conservative baseline rules | Missing positive fetch mapping fails with `ErrInvalidRefspecConfig` |
 | `TestApplyRefspecPlanAddsNegativeFetchPreservingOrder` | Default fetch isolation | Managed exclusion present; unrelated fetch order unchanged |
 | `TestApplyRefspecPlanReconcilesOpaxManagedMultivars` | Opax-owned convergence | Opax fetch/push rewritten to exact canonical set |
 | `TestApplyRefspecPlanIdempotentConverges` | Repeat safety | Reapply yields same canonical state with no managed duplicates |
 | `TestApplyRefspecPlanLocksAndRechecks` | Concurrency safety | Writes serialized and mutable checks revalidated under lock |
 | `TestReadRefspecStateCanonicalizesAndReportsViolations` | Read contract | Canonical Opax ordering, boolean isolation flag, stable machine codes |
+| `TestReadRefspecStateReportsRemotePushMirrorViolation` | Read-side mirror reporting | Push mirror mode is surfaced as a stable violation code and disables isolation |
 | `TestReadRefspecStateRejectsInvalidManagedEntries` | Fail-closed read behavior | Unknown/malformed Opax-managed fetch/push entries fail with typed error |

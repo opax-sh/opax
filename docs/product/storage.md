@@ -298,7 +298,7 @@ Upgrading from local to hosted is configuration, not migration:
 
 ### Refspec Configuration
 
-The SDK configures ref handling during `opax init` to enforce default-sync isolation: plain Git defaults remain code-centric, while Opax refs are synced explicitly.
+The SDK configures ref handling during `opax init` to enforce default-sync isolation: plain Git defaults remain code-centric, while Opax refs are synced explicitly. Remotes that already enable push mirroring or broad default fetch refspecs that still reach Opax refs are rejected rather than auto-rewritten.
 
 ```gitconfig
 [remote "origin"]
@@ -316,7 +316,7 @@ The SDK configures ref handling during `opax init` to enforce default-sync isola
   push = +refs/notes/opax/*:refs/notes/opax/*
 ```
 
-`opax init` does not write Opax refs to `remote.<name>.push`; plain `git fetch` and `git push` remain code-centric. Opax data sync is explicit via `opax pull`, `opax push`, or equivalent git commands with explicit refspecs.
+`opax init` does not write Opax refs to `remote.<name>.push` and does not mutate `remote.<name>.mirror`; plain `git fetch` and `git push` remain code-centric only when the selected remote is already compatible with that guarantee. Opax data sync is explicit via `opax pull`, `opax push`, or equivalent git commands with explicit refspecs.
 
 ### Object Packing
 

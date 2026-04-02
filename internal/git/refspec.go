@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ type RefspecViolationCode string
 
 const (
 	RefspecViolationMissingDefaultFetchExclusion RefspecViolationCode = "missing_default_fetch_exclusion"
+	RefspecViolationDefaultFetchMatchesOpaxRefs  RefspecViolationCode = "default_fetch_matches_opax_refs"
+	RefspecViolationRemotePushMirrorEnabled      RefspecViolationCode = "remote_push_mirror_enabled"
 	RefspecViolationOpaxRefsInRemotePush         RefspecViolationCode = "opax_refs_in_remote_push"
 	RefspecViolationInvalidOpaxManagedConfig     RefspecViolationCode = "invalid_opax_managed_config"
 )
@@ -38,6 +41,8 @@ type RefspecState struct {
 
 const (
 	refspecDefaultFetchExclusion = "^refs/heads/opax/v1"
+	refspecFetchOpaxProbeRef     = "refs/opax/__opax_probe__"
+	refspecNotesOpaxProbeRef     = "refs/notes/opax/__opax_probe__"
 
 	refspecManagedOffendingLimit = 5
 	refspecManagedValueMaxLen    = 160
@@ -213,13 +218,27 @@ func readRefspecStateWithBackend(
 	if err != nil {
 		return nil, err
 	}
-	defaultExclusionPresent := countExactValues(remoteFetchValues, refspecDefaultFetchExclusion) > 0
+	defaultFetchExclusionCount := countExactValues(remoteFetchValues, refspecDefaultFetchExclusion)
+	if defaultFetchExclusionCount > 1 {
+		return nil, fmt.Errorf(
+			"git: %s contains duplicate managed exclusion %q: %w",
+			remoteFetchConfigKey(remote),
+			refspecDefaultFetchExclusion,
+			ErrInvalidRefspecConfig,
+		)
+	}
+	defaultExclusionPresent := defaultFetchExclusionCount == 1
+	fetchOpaxOffenders := collectRemoteFetchOpaxRefspecs(remoteFetchValues, defaultExclusionPresent)
 
 	remotePushValues, err := readConfigMultivarValues(backend, remotePushConfigKey(remote))
 	if err != nil {
 		return nil, err
 	}
 	pushOpaxOffenders := collectRemotePushOpaxRefspecs(remotePushValues)
+	remotePushMirrorEnabled, _, err := readConfigBoolValue(backend, remoteMirrorConfigKey(remote))
+	if err != nil {
+		return nil, err
+	}
 
 	managedFetchValues, err := readConfigMultivarValues(backend, opaxRemoteFetchConfigKey(remote))
 	if err != nil {
@@ -247,9 +266,15 @@ func readRefspecStateWithBackend(
 		return nil, err
 	}
 
-	violations := make([]RefspecViolationCode, 0, 2)
+	violations := make([]RefspecViolationCode, 0, 4)
 	if !defaultExclusionPresent {
 		violations = append(violations, RefspecViolationMissingDefaultFetchExclusion)
+	}
+	if len(fetchOpaxOffenders) > 0 {
+		violations = append(violations, RefspecViolationDefaultFetchMatchesOpaxRefs)
+	}
+	if remotePushMirrorEnabled {
+		violations = append(violations, RefspecViolationRemotePushMirrorEnabled)
 	}
 	if len(pushOpaxOffenders) > 0 {
 		violations = append(violations, RefspecViolationOpaxRefsInRemotePush)
@@ -257,10 +282,13 @@ func readRefspecStateWithBackend(
 
 	return &RefspecState{
 		DefaultFetchExclusionPresent: defaultExclusionPresent,
-		DefaultSyncIsolationEnforced: defaultExclusionPresent && len(pushOpaxOffenders) == 0,
-		Violations:                   violations,
-		OpaxFetch:                    opaxFetch,
-		OpaxPush:                     opaxPush,
+		DefaultSyncIsolationEnforced: defaultExclusionPresent &&
+			len(fetchOpaxOffenders) == 0 &&
+			!remotePushMirrorEnabled &&
+			len(pushOpaxOffenders) == 0,
+		Violations: violations,
+		OpaxFetch:  opaxFetch,
+		OpaxPush:   opaxPush,
 	}, nil
 }
 
@@ -293,10 +321,30 @@ func validateRefspecApplyPreflight(
 			ErrInvalidRefspecConfig,
 		)
 	}
+	fetchOpaxOffenders := collectRemoteFetchOpaxRefspecs(remoteFetchValues, true)
+	if len(fetchOpaxOffenders) > 0 {
+		return nil, fmt.Errorf(
+			"git: %s still reaches Opax refs [%s]: %w",
+			remoteFetchConfigKey(remote),
+			strings.Join(fetchOpaxOffenders, ", "),
+			ErrDefaultSyncIsolationViolation,
+		)
+	}
 
 	remotePushValues, err := readConfigMultivarValues(backend, remotePushConfigKey(remote))
 	if err != nil {
 		return nil, err
+	}
+	remotePushMirrorEnabled, _, err := readConfigBoolValue(backend, remoteMirrorConfigKey(remote))
+	if err != nil {
+		return nil, err
+	}
+	if remotePushMirrorEnabled {
+		return nil, fmt.Errorf(
+			"git: %s enables push mirror mode: %w",
+			remoteMirrorConfigKey(remote),
+			ErrDefaultSyncIsolationViolation,
+		)
 	}
 	pushOpaxOffenders := collectRemotePushOpaxRefspecs(remotePushValues)
 	if len(pushOpaxOffenders) > 0 {
@@ -396,6 +444,40 @@ func readConfigMultivarValues(backend *nativeGitBackend, key string) ([]string, 
 		return []string{}, nil
 	}
 	return values, nil
+}
+
+func readConfigBoolValue(backend *nativeGitBackend, key string) (bool, bool, error) {
+	stdout, stderr, err := backend.runCapture(nil, "config", "--local", "--type=bool", "--get", key)
+	if err != nil {
+		if isMissingConfigGetResult(err, stderr) {
+			return false, false, nil
+		}
+		stderrText := normalizeGitStderr(stderr)
+		if stderrText == "" {
+			return false, false, fmt.Errorf("git: read bool config %s: %w", key, ErrInvalidRefspecConfig)
+		}
+		return false, false, fmt.Errorf(
+			"git: read bool config %s: %s: %w",
+			key,
+			stderrText,
+			ErrInvalidRefspecConfig,
+		)
+	}
+
+	value := strings.TrimSpace(string(stdout))
+	switch value {
+	case "true":
+		return true, true, nil
+	case "false":
+		return false, true, nil
+	default:
+		return false, false, fmt.Errorf(
+			"git: bool config %s returned invalid value %q: %w",
+			key,
+			value,
+			ErrInvalidRefspecConfig,
+		)
+	}
 }
 
 func addConfigMultivarValue(backend *nativeGitBackend, key, value string) error {
@@ -501,6 +583,62 @@ func collectRemotePushOpaxRefspecs(rawValues []string) []string {
 	return result
 }
 
+func collectRemoteFetchOpaxRefspecs(rawValues []string, defaultFetchExclusionPresent bool) []string {
+	seen := map[string]bool{}
+	for _, raw := range rawValues {
+		value := strings.TrimSpace(raw)
+		if value == "" || strings.HasPrefix(value, "^") {
+			continue
+		}
+
+		positive := strings.TrimPrefix(value, "+")
+		source, _, ok := strings.Cut(positive, ":")
+		if !ok {
+			continue
+		}
+		if !fetchRefspecSourceTargetsOpaxRef(strings.TrimSpace(source), defaultFetchExclusionPresent) {
+			continue
+		}
+
+		bounded := value
+		if len(bounded) > refspecManagedValueMaxLen {
+			bounded = bounded[:refspecManagedValueMaxLen]
+		}
+		seen[bounded] = true
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(seen))
+	for value := range seen {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	if len(result) > refspecManagedOffendingLimit {
+		result = result[:refspecManagedOffendingLimit]
+	}
+	return result
+}
+
+func fetchRefspecSourceTargetsOpaxRef(source string, defaultFetchExclusionPresent bool) bool {
+	probeRefs := []string{
+		opaxBranchRef,
+		refspecFetchOpaxProbeRef,
+		refspecNotesOpaxProbeRef,
+	}
+	for _, probe := range probeRefs {
+		if probe == opaxBranchRef && defaultFetchExclusionPresent {
+			continue
+		}
+		if refspecSourceMatchesRef(source, probe) {
+			return true
+		}
+	}
+	return false
+}
+
 func refspecTargetsOpaxRef(raw string) bool {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -527,6 +665,24 @@ func refspecTargetsOpaxRef(raw string) bool {
 		}
 	}
 	return false
+}
+
+func refspecSourceMatchesRef(pattern, ref string) bool {
+	trimmedPattern := strings.TrimSpace(pattern)
+	if trimmedPattern == "" {
+		return false
+	}
+	if !strings.Contains(trimmedPattern, "*") {
+		return trimmedPattern == ref
+	}
+
+	quotedPattern := regexp.QuoteMeta(trimmedPattern)
+	regexPattern := "^" + strings.ReplaceAll(quotedPattern, `\*`, ".*") + "$"
+	matcher, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return false
+	}
+	return matcher.MatchString(ref)
 }
 
 func countExactValues(values []string, target string) int {
@@ -584,6 +740,10 @@ func remoteFetchConfigKey(remote string) string {
 
 func remotePushConfigKey(remote string) string {
 	return fmt.Sprintf("remote.%s.push", remote)
+}
+
+func remoteMirrorConfigKey(remote string) string {
+	return fmt.Sprintf("remote.%s.mirror", remote)
 }
 
 func opaxRemoteFetchConfigKey(remote string) string {

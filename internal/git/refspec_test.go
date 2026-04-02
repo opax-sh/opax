@@ -158,6 +158,58 @@ func TestApplyRefspecPlanRejectsRemotePushOpaxRefs(t *testing.T) {
 	}
 }
 
+func TestApplyRefspecPlanRejectsRemotePushMirror(t *testing.T) {
+	repoRoot, ctx := initGitRepoWithOriginRemote(t)
+	runGit(t, repoRoot, "config", "--local", "remote.origin.mirror", "true")
+	plan := mustBuildRefspecPlan(t, "origin")
+
+	_, err := internalgit.ApplyRefspecPlan(ctx, "origin", plan)
+	if !errors.Is(err, internalgit.ErrDefaultSyncIsolationViolation) {
+		t.Fatalf("ApplyRefspecPlan() error = %v, want ErrDefaultSyncIsolationViolation", err)
+	}
+	if !strings.Contains(err.Error(), "remote.origin.mirror") {
+		t.Fatalf("ApplyRefspecPlan() error = %v, want mirror key in error context", err)
+	}
+}
+
+func TestApplyRefspecPlanRejectsRemoteFetchOpaxRefs(t *testing.T) {
+	tests := []struct {
+		name     string
+		refspecs []string
+	}{
+		{
+			name:     "custom refs namespace",
+			refspecs: []string{"+refs/opax/*:refs/opax/*"},
+		},
+		{
+			name:     "notes refs namespace",
+			refspecs: []string{"+refs/notes/opax/*:refs/notes/opax/*"},
+		},
+		{
+			name:     "broad refs namespace",
+			refspecs: []string{"+refs/*:refs/*"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repoRoot, ctx := initGitRepoWithOriginRemote(t)
+			for _, refspec := range tc.refspecs {
+				runGit(t, repoRoot, "config", "--local", "--add", "remote.origin.fetch", refspec)
+			}
+
+			plan := mustBuildRefspecPlan(t, "origin")
+			_, err := internalgit.ApplyRefspecPlan(ctx, "origin", plan)
+			if !errors.Is(err, internalgit.ErrDefaultSyncIsolationViolation) {
+				t.Fatalf("ApplyRefspecPlan() error = %v, want ErrDefaultSyncIsolationViolation", err)
+			}
+			if !strings.Contains(err.Error(), tc.refspecs[0]) {
+				t.Fatalf("ApplyRefspecPlan() error = %v, want offending fetch refspec in error context", err)
+			}
+		})
+	}
+}
+
 func TestApplyRefspecPlanRequiresPositiveFetchBaseline(t *testing.T) {
 	repoRoot, ctx := initGitRepoWithOriginRemote(t)
 	runGit(t, repoRoot, "config", "--local", "--unset-all", "remote.origin.fetch")
@@ -323,6 +375,7 @@ func TestReadRefspecStateCanonicalizesAndReportsViolations(t *testing.T) {
 	}
 	wantViolations := []internalgit.RefspecViolationCode{
 		internalgit.RefspecViolationMissingDefaultFetchExclusion,
+		internalgit.RefspecViolationDefaultFetchMatchesOpaxRefs,
 		internalgit.RefspecViolationOpaxRefsInRemotePush,
 	}
 	if !reflect.DeepEqual(state.Violations, wantViolations) {
@@ -333,6 +386,30 @@ func TestReadRefspecStateCanonicalizesAndReportsViolations(t *testing.T) {
 	}
 	if !reflect.DeepEqual(state.OpaxPush, plan.OpaxPush) {
 		t.Fatalf("OpaxPush = %v, want canonical ordered %v", state.OpaxPush, plan.OpaxPush)
+	}
+}
+
+func TestReadRefspecStateReportsRemotePushMirrorViolation(t *testing.T) {
+	repoRoot, ctx := initGitRepoWithOriginRemote(t)
+	runGit(t, repoRoot, "config", "--local", "--add", "remote.origin.fetch", "^refs/heads/opax/v1")
+	runGit(t, repoRoot, "config", "--local", "remote.origin.mirror", "true")
+
+	state, err := internalgit.ReadRefspecState(ctx, "origin")
+	if err != nil {
+		t.Fatalf("ReadRefspecState() error = %v", err)
+	}
+
+	if !state.DefaultFetchExclusionPresent {
+		t.Fatal("DefaultFetchExclusionPresent = false, want true with managed exclusion present")
+	}
+	if state.DefaultSyncIsolationEnforced {
+		t.Fatal("DefaultSyncIsolationEnforced = true, want false when remote push mirror is enabled")
+	}
+	wantViolations := []internalgit.RefspecViolationCode{
+		internalgit.RefspecViolationRemotePushMirrorEnabled,
+	}
+	if !reflect.DeepEqual(state.Violations, wantViolations) {
+		t.Fatalf("Violations = %v, want %v", state.Violations, wantViolations)
 	}
 }
 

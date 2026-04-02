@@ -207,7 +207,7 @@ First-party namespaces live directly under `refs/notes/opax/`. Community/third-p
 
 ### 3.4 Notes Distribution
 
-Opax enforces default-sync isolation: plain `git push` does not push notes or `opax/v1` by default, and `opax init` does not mutate `remote.<name>.push` to include Opax refs. During `opax init`, the SDK records explicit Opax fetch/push refspecs under Opax-owned config keys for later `opax pull` and `opax push` flows. Those explicit refspecs cover `refs/heads/opax/v1`, custom refs under `refs/opax/*`, and notes under `refs/notes/opax/*`. Auto-push on commit is off by default — sharing Opax data remains explicit.
+Opax enforces default-sync isolation: plain `git push` does not push notes or `opax/v1` by default, and `opax init` does not mutate `remote.<name>.push` or `remote.<name>.mirror` to include Opax refs implicitly. During `opax init`, the SDK records explicit Opax fetch/push refspecs under Opax-owned config keys for later `opax pull` and `opax push` flows. Those explicit refspecs cover `refs/heads/opax/v1`, custom refs under `refs/opax/*`, and notes under `refs/notes/opax/*`. Remotes whose default fetch config still reaches Opax refs are treated as incompatible and must be remediated explicitly. Auto-push on commit is off by default — sharing Opax data remains explicit.
 
 ---
 
@@ -441,7 +441,7 @@ Git was designed for source code, not a general-purpose data platform. The spec 
 
 **Size budget:** With the two-tier model, git footprint is ~2-5 MB/day for a 5-developer team (metadata only). CAS adds ~100 MB/day for bulk content but doesn't affect git operations. See *Storage & Scaling Spec* for detailed capacity math.
 
-**Network transfer:** Configure refspecs so `git fetch` only pulls code branches by default, while Opax refs are synced explicitly via Opax-owned refspecs. The SDK auto-configures this during `opax init`.
+**Network transfer:** Configure refspecs so `git fetch` only pulls code branches by default, while Opax refs are synced explicitly via Opax-owned refspecs. The SDK auto-configures this during `opax init` and rejects remotes whose default fetch/push settings still move Opax refs.
 
 ---
 

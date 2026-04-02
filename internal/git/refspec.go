@@ -155,16 +155,31 @@ func validateRemoteName(remote string) error {
 	if strings.TrimSpace(remote) != remote {
 		return fmt.Errorf("git: remote name %q contains leading/trailing whitespace: %w", remote, ErrRemoteNameInvalid)
 	}
+	if strings.HasPrefix(remote, "/") || strings.HasSuffix(remote, "/") || strings.Contains(remote, "//") {
+		return fmt.Errorf("git: remote name %q has invalid slash layout: %w", remote, ErrRemoteNameInvalid)
+	}
+	if strings.Contains(remote, "..") {
+		return fmt.Errorf("git: remote name %q contains consecutive dots: %w", remote, ErrRemoteNameInvalid)
+	}
+	if strings.HasSuffix(remote, ".") {
+		return fmt.Errorf("git: remote name %q ends with '.': %w", remote, ErrRemoteNameInvalid)
+	}
+	if strings.Contains(remote, "@{") {
+		return fmt.Errorf("git: remote name %q contains invalid sequence \"@{\": %w", remote, ErrRemoteNameInvalid)
+	}
 
 	for i := 0; i < len(remote); i++ {
 		ch := remote[i]
-		switch {
-		case ch >= 'a' && ch <= 'z':
-		case ch >= 'A' && ch <= 'Z':
-		case ch >= '0' && ch <= '9':
-		case ch == '.', ch == '_', ch == '/', ch == '-':
-		default:
+		if ch < 0x20 || ch == 0x7f || strings.ContainsRune(" ~^:?*[\\", rune(ch)) {
 			return fmt.Errorf("git: remote name %q contains invalid character %q: %w", remote, ch, ErrRemoteNameInvalid)
+		}
+	}
+	for _, component := range strings.Split(remote, "/") {
+		if strings.HasPrefix(component, ".") {
+			return fmt.Errorf("git: remote name %q has component %q starting with '.': %w", remote, component, ErrRemoteNameInvalid)
+		}
+		if strings.HasSuffix(component, ".lock") {
+			return fmt.Errorf("git: remote name %q has component %q ending with \".lock\": %w", remote, component, ErrRemoteNameInvalid)
 		}
 	}
 

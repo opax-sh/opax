@@ -45,7 +45,7 @@ func TestBuildRefspecPlan(t *testing.T) {
 }
 
 func TestBuildRefspecPlanRemoteNameValidation(t *testing.T) {
-	validNames := []string{"origin", "team.origin", "team/prod", "team-prod_1", "A/B.C-1_2"}
+	validNames := []string{"origin", "team.origin", "team/prod", "team-prod_1", "A/B.C-1_2", "a@b", "@"}
 	for _, remote := range validNames {
 		_, err := internalgit.BuildRefspecPlan(remote)
 		if err != nil {
@@ -64,6 +64,19 @@ func TestBuildRefspecPlanRemoteNameValidation(t *testing.T) {
 		"origin[1]",
 		"origin\tname",
 		"origin\nname",
+		"a..b",
+		"a.lock",
+		"a//b",
+		"/origin",
+		"origin/",
+		".origin",
+		"team/.prod",
+		"origin.",
+		"origin~name",
+		"origin^name",
+		"origin:name",
+		"origin\\name",
+		"origin@{name",
 	}
 	for _, remote := range invalidNames {
 		_, err := internalgit.BuildRefspecPlan(remote)
@@ -107,6 +120,27 @@ func TestApplyRefspecPlanMissingRemote(t *testing.T) {
 	_, err := internalgit.ApplyRefspecPlan(ctx, "origin", plan)
 	if !errors.Is(err, internalgit.ErrRemoteMissing) {
 		t.Fatalf("ApplyRefspecPlan() error = %v, want ErrRemoteMissing", err)
+	}
+}
+
+func TestApplyRefspecPlanAllowsGitCompatibleAtRemoteName(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	runGit(t, repoRoot, "remote", "add", "a@b", "https://example.com/opax.git")
+	ctx := mustDiscoverRepo(t, repoRoot)
+	plan := mustBuildRefspecPlan(t, "a@b")
+
+	state, err := internalgit.ApplyRefspecPlan(ctx, "a@b", plan)
+	if err != nil {
+		t.Fatalf("ApplyRefspecPlan() error = %v", err)
+	}
+	if !state.DefaultFetchExclusionPresent {
+		t.Fatal("DefaultFetchExclusionPresent = false, want true")
+	}
+	if !reflect.DeepEqual(state.OpaxFetch, plan.OpaxFetch) {
+		t.Fatalf("OpaxFetch = %v, want canonical %v", state.OpaxFetch, plan.OpaxFetch)
+	}
+	if !reflect.DeepEqual(state.OpaxPush, plan.OpaxPush) {
+		t.Fatalf("OpaxPush = %v, want canonical %v", state.OpaxPush, plan.OpaxPush)
 	}
 }
 

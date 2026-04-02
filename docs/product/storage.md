@@ -298,7 +298,7 @@ Upgrading from local to hosted is configuration, not migration:
 
 ### Refspec Configuration
 
-The SDK configures ref handling during `opax init` to prevent Opax data from inflating normal git operations while still giving Opax explicit sync paths:
+The SDK configures ref handling during `opax init` to enforce default-sync isolation: plain Git defaults remain code-centric, while Opax refs are synced explicitly. Remotes that already enable push mirroring or broad default fetch refspecs that still reach Opax refs are rejected rather than auto-rewritten.
 
 ```gitconfig
 [remote "origin"]
@@ -310,11 +310,13 @@ The SDK configures ref handling during `opax init` to prevent Opax data from inf
   # Explicit Opax sync, used by opax pull/opax push
   fetch = +refs/heads/opax/v1:refs/remotes/origin/opax/v1
   fetch = +refs/opax/*:refs/opax/*
+  fetch = +refs/notes/opax/*:refs/notes/opax/*
   push = +refs/heads/opax/v1:refs/heads/opax/v1
   push = +refs/opax/*:refs/opax/*
+  push = +refs/notes/opax/*:refs/notes/opax/*
 ```
 
-Plain `git fetch` and `git push` remain code-centric. Opax data sync is explicit via `opax pull`, `opax push`, or equivalent git commands with explicit refspecs.
+`opax init` does not write Opax refs to `remote.<name>.push` and does not mutate `remote.<name>.mirror`; plain `git fetch` and `git push` remain code-centric only when the selected remote is already compatible with that guarantee. Opax data sync is explicit via `opax pull`, `opax push`, or equivalent git commands with explicit refspecs.
 
 ### Object Packing
 
@@ -330,8 +332,8 @@ Plain `git fetch` and `git push` remain code-centric. Opax data sync is explicit
 
 A fresh clone should NOT clone the Opax branch by default. The ref handling above ensures this. After cloning:
 
-1. `opax init` sets up the default-fetch exclusion, stores explicit Opax refspecs, and creates the local SQLite database
-2. `opax pull` fetches `refs/heads/opax/v1` plus `refs/opax/*` using those explicit refspecs (can later be scoped, e.g. `opax pull --since 30d`)
+1. `opax init` sets up the default-fetch exclusion, stores explicit Opax refspecs under Opax-owned keys, and creates the local SQLite database
+2. `opax pull` fetches `refs/heads/opax/v1`, `refs/opax/*`, and `refs/notes/opax/*` using those explicit refspecs (can later be scoped, e.g. `opax pull --since 30d`)
 3. SQLite materializes fetched data
 4. CAS files are fetched on demand or in bulk
 

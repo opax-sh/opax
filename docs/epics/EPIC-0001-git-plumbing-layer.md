@@ -78,7 +78,7 @@ Commits written to `opax/v1` are internal system commits, not user-authored sour
 
 This keeps initialization and capture flows deterministic on clean machines and CI-style environments.
 
-### 6. Stealth Default Means No Opax Data in Plain Git Fetch/Push
+### 6. Default-Sync Isolation Means No Opax Data in Plain Git Fetch/Push
 
 Phase 0 keeps Opax data out of default code sync flows:
 
@@ -86,7 +86,7 @@ Phase 0 keeps Opax data out of default code sync flows:
 - Plain `git push` should not start pushing Opax refs implicitly
 - Later `opax pull` / `opax push` commands use explicit refspecs
 
-This resolves the roadmap/product-doc drift without violating the stealth-default decision in `docs/product/overview.md`.
+This resolves roadmap/product drift while keeping Git defaults code-centric and Opax sync explicit.
 
 ---
 
@@ -101,7 +101,7 @@ This resolves the roadmap/product-doc drift without violating the stealth-defaul
 | FEAT-0008  | Read records from branch | Point reads from `opax/v1` by record ID/path                                     | Internal primitive for rebuild/sync/debugging |
 | FEAT-0009  | Git notes operations     | Read/write/list notes under `refs/notes/opax/`* with per-namespace CAS retry      | Mutable metadata layer                        |
 | FEAT-0010  | Commit trailer support   | Insert and parse `Opax-Save` trailers using save-ID preallocation                | Hook installation happens later               |
-| FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve stealth default                 |
+| FEAT-0011  | Refspec configuration    | Generate conservative config for later init/pull/push flows                      | Must preserve default-sync isolation          |
 | FEAT-0012  | Native backend adapter migration | Make native Git the production backend transport behind a typed `internal/git` adapter | Checkpointed slices A-F with canonical-fixture CI gates; preserve typed contracts during transport swap |
 | FEAT-0013  | go-git API and type decoupling | Remove the frozen FEAT-0012 `go-git` compatibility surface in two stages         | Blocked until FEAT-0012 closeout is merged    |
 
@@ -263,7 +263,7 @@ If the code starts solving any of the above inside `internal/git/`, the epic has
 - `FEAT-0008` can read branch records directly by deterministic path
 - `FEAT-0009` can bootstrap missing notes refs and enumerate notes for rebuild
 - `FEAT-0010` inserts exactly one valid `Opax-Save` trailer and parses it back from commits
-- `FEAT-0011` preserves stealth default: plain `git fetch` and `git push` remain code-centric
+- `FEAT-0011` preserves default-sync isolation: plain `git fetch` and `git push` remain code-centric
 - `FEAT-0012` establishes native Git as the production transport with typed adapter-backed semantics
 - `FEAT-0012` checkpoint slices are CI-gated by canonical linked-worktree compatibility tests on Linux and macOS, with hard call-count ceilings for read-path slices
 - All git writes use machine identity `Opax <opax@local>`

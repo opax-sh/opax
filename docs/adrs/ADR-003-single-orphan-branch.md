@@ -24,13 +24,13 @@ Opax metadata (sessions, saves, plugin data) needs to live in git without pollut
 - Cons: limited structure. Notes are single-ref, making namespaced data awkward. No good story for session data that isn't commit-attached.
 
 ### Option C — Single orphan branch with sharded directory layout
-- Pros: one ref to sync. Git shares tree objects between commits, delta compression works across full history. Sharded directories (first two chars of ID) prevent single-directory bloat. Excluded from default fetch — invisible unless explicitly synced.
+- Pros: one ref to sync. Git shares tree objects between commits, delta compression works across full history. Sharded directories (first two chars of ID) prevent single-directory bloat. Excluded from default fetch under default-sync isolation unless explicitly synced.
 - Cons: final publication still serializes at one branch ref; writers must use per-ref CAS with retry to avoid lost updates.
 
 ## Decision
 Option C. All Opax metadata lives on `opax/v1`, a single orphan branch with sharded directory structure. Adopted from Entire.io's architecture.
 
-The branch is excluded from default fetch via refspec design — `opax pull` and `opax push` (or explicit git refspecs) sync it explicitly.
+The branch is excluded from default fetch via refspec design, and Opax refs are not added to plain `git push` defaults. `opax pull` and `opax push` (or explicit git refspecs) sync Opax data explicitly.
 
 ## Consequences
 

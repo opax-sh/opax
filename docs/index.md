@@ -29,7 +29,7 @@ Use it as the one-page status rollup across all epics and features.
 | FEAT-0008 | EPIC-0001 | Completed | [features/FEAT-0008-read-records-from-branch.md](features/FEAT-0008-read-records-from-branch.md) |
 | FEAT-0009 | EPIC-0001 | Completed | [features/FEAT-0009-git-notes-operations.md](features/FEAT-0009-git-notes-operations.md)         |
 | FEAT-0010 | EPIC-0001 | Completed | [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md)     |
-| FEAT-0011 | EPIC-0001 | Backlog   | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)       |
+| FEAT-0011 | EPIC-0001 | Completed | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)       |
 | FEAT-0012 | EPIC-0001 | Completed | [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md) |
 | FEAT-0013 | EPIC-0001 | Blocked | [features/FEAT-0013-go-git-api-type-decoupling.md](features/FEAT-0013-go-git-api-type-decoupling.md) |
 

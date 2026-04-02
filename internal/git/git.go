@@ -43,6 +43,19 @@ var (
 	// ErrNoteConflict indicates the namespace ref changed during note publication.
 	ErrNoteConflict = errors.New("git: note ref changed")
 
+	// ErrRemoteNameInvalid indicates a remote name failed FEAT-0011 validation.
+	ErrRemoteNameInvalid = errors.New("git: invalid remote name")
+
+	// ErrRemoteMissing indicates a referenced remote does not exist.
+	ErrRemoteMissing = errors.New("git: remote not found")
+
+	// ErrDefaultSyncIsolationViolation indicates plain git push config contains
+	// Opax refs and would violate default-sync isolation.
+	ErrDefaultSyncIsolationViolation = errors.New("git: default-sync isolation violated")
+
+	// ErrInvalidRefspecConfig indicates unsupported or malformed refspec config.
+	ErrInvalidRefspecConfig = errors.New("git: invalid refspec config")
+
 	errReferenceChanged    = errors.New("git: reference changed")
 	errReferenceCASUnknown = errors.New("git: reference update outcome unknown")
 )

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	pathpkg "path"
 	"strings"
-
-	"github.com/go-git/go-git/v5/plumbing"
 )
 
 // ReadRecord reads every file under one deterministic record root.
@@ -33,12 +31,12 @@ func ReadRecord(ctx *RepoContext, collection, recordID string) (*ReadResult, err
 		return nil, err
 	}
 
-	blobByPath := make(map[string]plumbing.Hash)
+	blobByPath := make(map[string]gitHash)
 	if err := collectRecordBlobHashes(backend, recordTreeHash, "", blobByPath, recordRoot); err != nil {
 		return nil, err
 	}
 
-	hashes := make([]plumbing.Hash, 0, len(blobByPath))
+	hashes := make([]gitHash, 0, len(blobByPath))
 	for _, hash := range blobByPath {
 		hashes = append(hashes, hash)
 	}
@@ -57,7 +55,7 @@ func ReadRecord(ctx *RepoContext, collection, recordID string) (*ReadResult, err
 	}
 
 	return &ReadResult{
-		BranchTip:  branchTip,
+		BranchTip:  branchTip.String(),
 		RecordRoot: recordRoot,
 		Files:      files,
 	}, nil
@@ -165,9 +163,9 @@ func WalkRecords(ctx *RepoContext, visit func(locator RecordLocator) error) erro
 
 func walkCollectionRecords(
 	backend *nativeGitBackend,
-	branchTip plumbing.Hash,
+	branchTip gitHash,
 	collection string,
-	collectionTreeHash plumbing.Hash,
+	collectionTreeHash gitHash,
 	visit func(locator RecordLocator) error,
 ) error {
 	entries, err := backend.readTreeRecursive(collectionTreeHash)
@@ -226,7 +224,7 @@ func walkCollectionRecords(
 			seenRecordRoots[recordRoot] = struct{}{}
 
 			if err := visit(RecordLocator{
-				BranchTip:  branchTip,
+				BranchTip:  branchTip.String(),
 				Collection: collection,
 				RecordID:   recordID,
 				RecordRoot: recordRoot,
@@ -239,21 +237,21 @@ func walkCollectionRecords(
 	return nil
 }
 
-func resolveReadSnapshot(backend *nativeGitBackend) (plumbing.Hash, plumbing.Hash, error) {
+func resolveReadSnapshot(backend *nativeGitBackend) (gitHash, gitHash, error) {
 	branchTip, tipCommit, err := resolveValidatedOpaxBranchTip(backend)
 	if err != nil {
-		return plumbing.ZeroHash, plumbing.ZeroHash, err
+		return "", "", err
 	}
 	return branchTip, tipCommit.TreeHash, nil
 }
 
-func resolveRecordRootTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash, recordRoot string) (plumbing.Hash, error) {
+func resolveRecordRootTree(backend *nativeGitBackend, rootTreeHash gitHash, recordRoot string) (gitHash, error) {
 	segments := strings.Split(recordRoot, "/")
 	currentTreeHash := rootTreeHash
 	for i, segment := range segments {
 		entries, err := backend.readTree(currentTreeHash)
 		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf(
+			return "", fmt.Errorf(
 				"git: read record root %q load tree %q (%s): %v: %w",
 				recordRoot,
 				strings.Join(segments[:i], "/"),
@@ -265,10 +263,10 @@ func resolveRecordRootTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash
 
 		entry, found := findTreeEntryByName(entries, segment)
 		if !found {
-			return plumbing.ZeroHash, fmt.Errorf("git: read record root %q missing %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrRecordNotFound)
+			return "", fmt.Errorf("git: read record root %q missing %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrRecordNotFound)
 		}
 		if !entryIsTree(entry) {
-			return plumbing.ZeroHash, fmt.Errorf("git: read record root %q expected tree at %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrMalformedTree)
+			return "", fmt.Errorf("git: read record root %q expected tree at %q: %w", recordRoot, strings.Join(segments[:i+1], "/"), ErrMalformedTree)
 		}
 
 		currentTreeHash = entry.Hash
@@ -279,9 +277,9 @@ func resolveRecordRootTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash
 
 func collectRecordBlobHashes(
 	backend *nativeGitBackend,
-	treeHash plumbing.Hash,
+	treeHash gitHash,
 	prefix string,
-	files map[string]plumbing.Hash,
+	files map[string]gitHash,
 	recordRoot string,
 ) error {
 	entries, err := backend.readTree(treeHash)

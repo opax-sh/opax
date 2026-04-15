@@ -2,6 +2,7 @@ package git_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -246,6 +247,47 @@ func TestTrailerPolicyParseSaveTrailerFromCommit(t *testing.T) {
 	}
 	if saveID.String() != "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV" {
 		t.Fatalf("ParseSaveTrailerFromCommit() ID = %q, want %q", saveID, "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}
+}
+
+func TestTrailerPolicyParseSaveTrailerFromCommitNormalizesHash(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	writeTrackedFile(t, repoRoot, "README.md", "hello\n")
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "feat: test", "-m", "body\n\nOpax-Save: sav_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	commitHash := strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "HEAD"))
+	normalizedInput := " \n\t" + strings.ToUpper(commitHash) + " \t"
+	saveID, ok, err := internalgit.ParseSaveTrailerFromCommit(ctx, normalizedInput)
+	if err != nil {
+		t.Fatalf("ParseSaveTrailerFromCommit() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ParseSaveTrailerFromCommit() ok = false, want true")
+	}
+	if saveID.String() != "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Fatalf("ParseSaveTrailerFromCommit() ID = %q, want %q", saveID, "sav_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	}
+}
+
+func TestTrailerPolicyParseSaveTrailerFromCommitRejectsAbbreviatedHash(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	_, _, err := internalgit.ParseSaveTrailerFromCommit(ctx, "abc123def456")
+	if !errors.Is(err, internalgit.ErrInvalidHash) {
+		t.Fatalf("ParseSaveTrailerFromCommit() error = %v, want ErrInvalidHash", err)
+	}
+}
+
+func TestTrailerPolicyParseSaveTrailerFromCommitRejectsMissingCommit(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	_, _, err := internalgit.ParseSaveTrailerFromCommit(ctx, strings.Repeat("a", 40))
+	if !errors.Is(err, internalgit.ErrCommitNotFound) {
+		t.Fatalf("ParseSaveTrailerFromCommit() error = %v, want ErrCommitNotFound", err)
 	}
 }
 

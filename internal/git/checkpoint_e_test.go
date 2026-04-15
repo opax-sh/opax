@@ -13,13 +13,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/opax-sh/opax/internal/types"
 )
 
 func TestCheckpointEWriteRecordRetryOnCASConflictSucceeds(t *testing.T) {
 	ctx := seedCheckpointCRecordFixture(t)
-	conflictHash := checkpointECreateSiblingRefCommit(t, ctx, plumbing.ReferenceName(opaxBranchRef), "opax: checkpoint e competing branch write")
+	conflictHash := checkpointECreateSiblingRefCommit(t, ctx, opaxBranchRef, "opax: checkpoint e competing branch write")
 	harness := newCheckpointEGitHarness(t, checkpointEConflictRefPlan{
 		refName:            opaxBranchRef,
 		conflictFailures:   1,
@@ -321,7 +320,7 @@ func TestCheckpointEListNoteNamespacesRejectsNestedRef(t *testing.T) {
 		t.Fatalf("resolveValidatedOpaxBranchTip() error = %v", err)
 	}
 
-	if err := backend.updateRefCAS(plumbing.ReferenceName(opaxNotesRefPrefix+"ext/reviews"), tipHash, nil); err != nil {
+	if err := backend.updateRefCAS(opaxNotesRefPrefix+"ext/reviews", tipHash, nil); err != nil {
 		t.Fatalf("updateRefCAS(nested note ref) error = %v", err)
 	}
 
@@ -486,9 +485,9 @@ exec "$OPAX_GIT_REAL_BIN" "$cmd" "$@"
 func checkpointEInstallMalformedNoteRef(
 	backend *nativeGitBackend,
 	namespace string,
-	targetCommitHash plumbing.Hash,
-	payloadBlobHash plumbing.Hash,
-) (plumbing.Hash, error) {
+	targetCommitHash gitHash,
+	payloadBlobHash gitHash,
+) (gitHash, error) {
 	shard, leaf := notePathComponents(targetCommitHash)
 
 	shardTreeHash, err := backend.writeTree([]gitTreeEntry{{
@@ -498,7 +497,7 @@ func checkpointEInstallMalformedNoteRef(
 		Hash: payloadBlobHash,
 	}})
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	rootTreeHash, err := backend.writeTree([]gitTreeEntry{{
@@ -508,12 +507,12 @@ func checkpointEInstallMalformedNoteRef(
 		Hash: shardTreeHash,
 	}})
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	noteCommitHash, err := backend.writeCommit(gitCommitWriteRequest{
 		TreeHash:       rootTreeHash,
-		ParentHashes:   []plumbing.Hash{targetCommitHash},
+		ParentHashes:   []gitHash{targetCommitHash},
 		Message:        "opax: checkpoint e malformed note",
 		AuthorName:     opaxAuthorName,
 		AuthorEmail:    opaxAuthorEmail,
@@ -521,11 +520,11 @@ func checkpointEInstallMalformedNoteRef(
 		CommitterEmail: opaxAuthorEmail,
 	})
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	if err := backend.updateRefCAS(noteRefName(namespace), noteCommitHash, nil); err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 	return noteCommitHash, nil
 }
@@ -533,9 +532,9 @@ func checkpointEInstallMalformedNoteRef(
 func checkpointECreateSiblingRefCommit(
 	t *testing.T,
 	ctx *RepoContext,
-	refName plumbing.ReferenceName,
+	refName string,
 	message string,
-) plumbing.Hash {
+) gitHash {
 	t.Helper()
 
 	backend, err := openRepoFromContext(ctx)
@@ -551,14 +550,14 @@ func checkpointECreateSiblingRefCommit(
 		t.Fatalf("readRef(%s) = nil, want existing ref", refName)
 	}
 
-	currentCommit, err := backend.readCommit(ref.Hash())
+	currentCommit, err := backend.readCommit(ref.hash)
 	if err != nil {
-		t.Fatalf("readCommit(%s) error = %v", ref.Hash(), err)
+		t.Fatalf("readCommit(%s) error = %v", ref.hash, err)
 	}
 
 	siblingHash, err := backend.writeCommit(gitCommitWriteRequest{
 		TreeHash:       currentCommit.TreeHash,
-		ParentHashes:   []plumbing.Hash{ref.Hash()},
+		ParentHashes:   []gitHash{ref.hash},
 		Message:        message,
 		AuthorName:     opaxAuthorName,
 		AuthorEmail:    opaxAuthorEmail,

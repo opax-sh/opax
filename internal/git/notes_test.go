@@ -100,6 +100,24 @@ func TestWriteNoteRejectsMissingCommit(t *testing.T) {
 	if err == nil {
 		t.Fatal("WriteNote() error = nil, want missing-commit error")
 	}
+	if !errors.Is(err, internalgit.ErrCommitNotFound) {
+		t.Fatalf("WriteNote() error = %v, want ErrCommitNotFound", err)
+	}
+}
+
+func TestWriteNoteRejectsAbbreviatedCommitHash(t *testing.T) {
+	repoRoot, commitHash := initGitRepoWithCommit(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	err := internalgit.WriteNote(ctx, types.Note{
+		CommitHash: commitHash[:12],
+		Namespace:  "sessions",
+		Version:    1,
+		Content:    mustJSONRawMessage(t, `{"session_id":"ses_123"}`),
+	})
+	if !errors.Is(err, internalgit.ErrInvalidHash) {
+		t.Fatalf("WriteNote() error = %v, want ErrInvalidHash", err)
+	}
 }
 
 func TestWriteNoteRejectsReservedVersionInContent(t *testing.T) {
@@ -240,6 +258,49 @@ func TestReadNoteSplitsVersionFromContent(t *testing.T) {
 	}
 }
 
+func TestReadNoteNormalizesCommitHash(t *testing.T) {
+	repoRoot, commitHash := initGitRepoWithCommit(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	if err := internalgit.WriteNote(ctx, types.Note{
+		CommitHash: commitHash,
+		Namespace:  "ext-reviews",
+		Version:    1,
+		Content:    mustJSONRawMessage(t, `{"reviewer":"qa"}`),
+	}); err != nil {
+		t.Fatalf("WriteNote() error = %v", err)
+	}
+
+	normalizedInput := " \n\t" + strings.ToUpper(commitHash) + " \t"
+	note, err := internalgit.ReadNote(ctx, "ext-reviews", normalizedInput)
+	if err != nil {
+		t.Fatalf("ReadNote() error = %v", err)
+	}
+	if note.CommitHash != commitHash {
+		t.Fatalf("ReadNote().CommitHash = %q, want %q", note.CommitHash, commitHash)
+	}
+}
+
+func TestReadNoteRejectsMissingCommit(t *testing.T) {
+	repoRoot, _ := initGitRepoWithCommit(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	_, err := internalgit.ReadNote(ctx, "ext-reviews", strings.Repeat("a", 40))
+	if !errors.Is(err, internalgit.ErrCommitNotFound) {
+		t.Fatalf("ReadNote() error = %v, want ErrCommitNotFound", err)
+	}
+}
+
+func TestReadNoteRejectsAbbreviatedCommitHash(t *testing.T) {
+	repoRoot, commitHash := initGitRepoWithCommit(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	_, err := internalgit.ReadNote(ctx, "ext-reviews", commitHash[:12])
+	if !errors.Is(err, internalgit.ErrInvalidHash) {
+		t.Fatalf("ReadNote() error = %v, want ErrInvalidHash", err)
+	}
+}
+
 func TestReadNoteGitNotesInterop(t *testing.T) {
 	requireGitBinary(t)
 
@@ -311,6 +372,30 @@ func TestListNotesReadsFanoutAndFlatLayouts(t *testing.T) {
 	}
 	if gotByHash[firstCommit] != `{"reviewer":"opax"}` || gotByHash[secondCommit] != `{"reviewer":"git"}` {
 		t.Fatalf("ListNotes() contents by hash = %#v", gotByHash)
+	}
+}
+
+func TestListNotesRejectsPaddedFlatHashEntry(t *testing.T) {
+	repoRoot, commitHash := initGitRepoWithCommit(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+	repo := mustOpenRepo(t, repoRoot)
+
+	blobHash := writeBlobObject(t, repo, []byte(`{"version":1,"reviewer":"qa"}`))
+	rootTreeHash := writeTreeObject(t, repo, []object.TreeEntry{{
+		Name: " " + commitHash + " ",
+		Mode: filemode.Regular,
+		Hash: blobHash,
+	}})
+
+	targetCommit := mustCommitObject(t, repo, plumbing.NewHash(commitHash))
+	noteCommitHash := writeCommitObject(t, repo, rootTreeHash, targetCommit.Hash, "opax: malformed padded flat note")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(notesRefPrefix+"ext-reviews"), noteCommitHash)); err != nil {
+		t.Fatalf("SetReference(%q) error = %v", notesRefPrefix+"ext-reviews", err)
+	}
+
+	_, err := internalgit.ListNotes(ctx, "ext-reviews")
+	if !errors.Is(err, internalgit.ErrMalformedNote) {
+		t.Fatalf("ListNotes() error = %v, want ErrMalformedNote", err)
 	}
 }
 

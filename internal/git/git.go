@@ -6,8 +6,6 @@ package git
 import (
 	"errors"
 	"time"
-
-	"github.com/go-git/go-git/v5/plumbing"
 )
 
 var (
@@ -33,6 +31,15 @@ var (
 
 	// ErrMalformedTree indicates unexpected tree/blob layout while reading.
 	ErrMalformedTree = errors.New("git: malformed opax tree state")
+
+	// ErrInvalidHash indicates a caller-provided hash is malformed.
+	ErrInvalidHash = errors.New("git: invalid hash")
+
+	// ErrCommitNotFound indicates a canonical commit hash does not resolve.
+	ErrCommitNotFound = errors.New("git: commit not found")
+
+	// ErrOpaxBranchNotFound indicates refs/heads/opax/v1 does not exist.
+	ErrOpaxBranchNotFound = errors.New("git: opax branch not found")
 
 	// ErrNoteNotFound indicates a note is absent for a target commit/namespace.
 	ErrNoteNotFound = errors.New("git: note not found")
@@ -91,7 +98,7 @@ type opaxBranchSentinel struct {
 	CreatedBy     string `json:"created_by"`
 }
 
-type refPublishBuilder func(backend *nativeGitBackend, currentRef *plumbing.Reference) (*plumbing.Reference, error)
+type refPublishBuilder func(backend *nativeGitBackend, currentRef *gitRef) (*gitRef, error)
 
 // RecordFile is one file written under a deterministic record root.
 type RecordFile struct {
@@ -104,26 +111,25 @@ type WriteRequest struct {
 	Collection  string
 	RecordID    string
 	Files       []RecordFile
-	ExpectedTip *plumbing.Hash
+	ExpectedTip *string
 }
 
 // WriteResult describes the published branch tip and record root.
 type WriteResult struct {
-	BranchTip  plumbing.Hash
-	CommitHash plumbing.Hash
+	BranchTip  string
 	RecordRoot string
 }
 
 // ReadResult describes a point-in-time record read from opax/v1.
 type ReadResult struct {
-	BranchTip  plumbing.Hash
+	BranchTip  string
 	RecordRoot string
 	Files      map[string][]byte
 }
 
 // RecordLocator identifies one record root discovered during WalkRecords.
 type RecordLocator struct {
-	BranchTip  plumbing.Hash
+	BranchTip  string
 	Collection string
 	RecordID   string
 	RecordRoot string
@@ -138,13 +144,13 @@ type normalizedWriteRequest struct {
 	Collection  string
 	RecordID    string
 	Files       []normalizedRecordFile
-	ExpectedTip *plumbing.Hash
+	ExpectedTip *gitHash
 	RecordRoot  string
 }
 
 type recordTreeNode struct {
 	Dirs  map[string]*recordTreeNode
-	Files map[string]plumbing.Hash
+	Files map[string]gitHash
 }
 
 // RepoContext describes the resolved repository layout that downstream git

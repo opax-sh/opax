@@ -3,6 +3,7 @@ package git
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,8 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/go-git/go-git/v5/plumbing"
 )
 
 type nativeGitBackend struct {
@@ -22,9 +21,9 @@ type nativeGitBackend struct {
 }
 
 type gitCommit struct {
-	Hash         plumbing.Hash
-	TreeHash     plumbing.Hash
-	ParentHashes []plumbing.Hash
+	Hash         gitHash
+	TreeHash     gitHash
+	ParentHashes []gitHash
 	Message      string
 }
 
@@ -32,7 +31,7 @@ type gitTreeEntry struct {
 	Name string
 	Mode string
 	Type string
-	Hash plumbing.Hash
+	Hash gitHash
 }
 
 type gitTreePathEntry struct {
@@ -41,8 +40,8 @@ type gitTreePathEntry struct {
 }
 
 type gitCommitWriteRequest struct {
-	TreeHash       plumbing.Hash
-	ParentHashes   []plumbing.Hash
+	TreeHash       gitHash
+	ParentHashes   []gitHash
 	Message        string
 	AuthorName     string
 	AuthorEmail    string
@@ -170,8 +169,8 @@ func (b *nativeGitBackend) runCapture(stdin []byte, args ...string) ([]byte, []b
 	return runCommandCapture(cmd, stdin)
 }
 
-func (b *nativeGitBackend) readRef(refName plumbing.ReferenceName) (*plumbing.Reference, error) {
-	stdout, stderr, err := b.runCapture(nil, "for-each-ref", "--format=%(objectname)", "--", refName.String())
+func (b *nativeGitBackend) readRef(refName string) (*gitRef, error) {
+	stdout, stderr, err := b.runCapture(nil, "for-each-ref", "--format=%(objectname)", "--", refName)
 	if err != nil {
 		return nil, wrapGitStderrError(fmt.Sprintf("git: read ref %s", refName), stderr, err)
 	}
@@ -188,11 +187,11 @@ func (b *nativeGitBackend) readRef(refName plumbing.ReferenceName) (*plumbing.Re
 	if err != nil {
 		return nil, fmt.Errorf("git: read ref %s: %w", refName, err)
 	}
-	return plumbing.NewHashReference(refName, hash), nil
+	return &gitRef{name: refName, hash: hash}, nil
 }
 
-func (b *nativeGitBackend) isSymbolicRef(refName plumbing.ReferenceName) (bool, string, error) {
-	stdout, stderr, err := b.runCapture(nil, "symbolic-ref", "-q", refName.String())
+func (b *nativeGitBackend) isSymbolicRef(refName string) (bool, string, error) {
+	stdout, stderr, err := b.runCapture(nil, "symbolic-ref", "-q", refName)
 	if err == nil {
 		target := strings.TrimSpace(string(stdout))
 		if target == "" {
@@ -217,8 +216,8 @@ const (
 	refCASOutcomeConflict
 )
 
-func (b *nativeGitBackend) updateRefCAS(refName plumbing.ReferenceName, newHash plumbing.Hash, oldHash *plumbing.Hash) error {
-	expectedOld := plumbing.ZeroHash
+func (b *nativeGitBackend) updateRefCAS(refName string, newHash gitHash, oldHash *gitHash) error {
+	expectedOld := zeroGitHash
 	if oldHash != nil {
 		expectedOld = *oldHash
 	}
@@ -226,7 +225,7 @@ func (b *nativeGitBackend) updateRefCAS(refName plumbing.ReferenceName, newHash 
 	_, stderr, err := b.runCapture(
 		nil,
 		"update-ref",
-		refName.String(),
+		refName,
 		newHash.String(),
 		expectedOld.String(),
 	)
@@ -269,9 +268,9 @@ func (b *nativeGitBackend) updateRefCAS(refName plumbing.ReferenceName, newHash 
 }
 
 func (b *nativeGitBackend) probeUpdateRefCASOutcome(
-	refName plumbing.ReferenceName,
-	newHash plumbing.Hash,
-	expectedOld plumbing.Hash,
+	refName string,
+	newHash gitHash,
+	expectedOld gitHash,
 ) (refCASOutcome, error) {
 	currentRef, err := b.readRef(refName)
 	if err != nil {
@@ -280,33 +279,47 @@ func (b *nativeGitBackend) probeUpdateRefCASOutcome(
 	return classifyRefCASOutcome(currentRef, newHash, expectedOld), nil
 }
 
-func classifyRefCASOutcome(currentRef *plumbing.Reference, newHash, expectedOld plumbing.Hash) refCASOutcome {
-	if currentRef != nil && currentRef.Hash() == newHash {
+func classifyRefCASOutcome(currentRef *gitRef, newHash, expectedOld gitHash) refCASOutcome {
+	if currentRef != nil && currentRef.hash == newHash {
 		return refCASOutcomeApplied
 	}
 
-	if expectedOld == plumbing.ZeroHash {
+	if expectedOld == zeroGitHash {
 		if currentRef != nil {
 			return refCASOutcomeConflict
 		}
 		return refCASOutcomeUnknown
 	}
 
-	if currentRef == nil || currentRef.Hash() != expectedOld {
+	if currentRef == nil || currentRef.hash != expectedOld {
 		return refCASOutcomeConflict
 	}
 	return refCASOutcomeUnknown
 }
 
-func (b *nativeGitBackend) ensureCommitExists(hash plumbing.Hash) error {
+func (b *nativeGitBackend) ensureCommitExists(hash gitHash) error {
 	typ, err := b.objectType(hash.String())
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("git: commit %s not found: %w", hash, ErrCommitNotFound)
+		}
 		return err
 	}
 	if typ != "commit" {
 		return fmt.Errorf("git: object %s is %s, want commit", hash, typ)
 	}
 	return nil
+}
+
+func (b *nativeGitBackend) readCommitForLookup(hash gitHash) (*gitCommit, error) {
+	commit, err := b.readCommit(hash)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("git: commit %s not found: %w", hash, ErrCommitNotFound)
+		}
+		return nil, err
+	}
+	return commit, nil
 }
 
 func (b *nativeGitBackend) objectType(spec string) (string, error) {
@@ -334,15 +347,16 @@ func isGitObjectNotFound(message string) bool {
 	return strings.Contains(lower, "not a valid object name") ||
 		strings.Contains(lower, "invalid object name") ||
 		strings.Contains(lower, "unknown revision") ||
+		strings.Contains(lower, "could not get object info") ||
 		strings.Contains(lower, "path does not exist") ||
 		strings.Contains(lower, "does not exist")
 }
 
-func (b *nativeGitBackend) readCommit(hash plumbing.Hash) (*gitCommit, error) {
+func (b *nativeGitBackend) readCommit(hash gitHash) (*gitCommit, error) {
 	typ, err := b.objectType(hash.String())
 	if err != nil {
-		if err == os.ErrNotExist {
-			return nil, fmt.Errorf("git: commit %s not found", hash)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("git: commit %s not found: %w", hash, os.ErrNotExist)
 		}
 		return nil, fmt.Errorf("git: read commit %s type: %w", hash, err)
 	}
@@ -365,7 +379,7 @@ func (b *nativeGitBackend) readCommit(hash plumbing.Hash) (*gitCommit, error) {
 		return nil, fmt.Errorf("git: read commit %s tree hash: %w", hash, err)
 	}
 
-	var parents []plumbing.Hash
+	var parents []gitHash
 	parentRaw := strings.TrimSpace(string(parts[1]))
 	if parentRaw != "" {
 		for _, token := range strings.Fields(parentRaw) {
@@ -387,7 +401,7 @@ func (b *nativeGitBackend) readCommit(hash plumbing.Hash) (*gitCommit, error) {
 	}, nil
 }
 
-func (b *nativeGitBackend) readBlob(hash plumbing.Hash) ([]byte, error) {
+func (b *nativeGitBackend) readBlob(hash gitHash) ([]byte, error) {
 	stdout, stderr, err := b.runCapture(nil, "cat-file", "blob", hash.String())
 	if err != nil {
 		return nil, wrapGitStderrError(fmt.Sprintf("git: read blob %s", hash), stderr, err)
@@ -395,7 +409,7 @@ func (b *nativeGitBackend) readBlob(hash plumbing.Hash) ([]byte, error) {
 	return stdout, nil
 }
 
-func (b *nativeGitBackend) readBlobAtPath(commitHash plumbing.Hash, path string) ([]byte, error) {
+func (b *nativeGitBackend) readBlobAtPath(commitHash gitHash, path string) ([]byte, error) {
 	spec := fmt.Sprintf("%s:%s", commitHash, path)
 	stdout, stderr, err := b.runCapture(nil, "cat-file", "blob", spec)
 	if err != nil {
@@ -408,7 +422,7 @@ func (b *nativeGitBackend) readBlobAtPath(commitHash plumbing.Hash, path string)
 	return stdout, nil
 }
 
-func (b *nativeGitBackend) readTree(hash plumbing.Hash) ([]gitTreeEntry, error) {
+func (b *nativeGitBackend) readTree(hash gitHash) ([]gitTreeEntry, error) {
 	stdout, stderr, err := b.runCapture(nil, "ls-tree", "-z", hash.String())
 	if err != nil {
 		return nil, wrapGitStderrError(fmt.Sprintf("git: read tree %s", hash), stderr, err)
@@ -420,7 +434,7 @@ func (b *nativeGitBackend) readTree(hash plumbing.Hash) ([]gitTreeEntry, error) 
 	return entries, nil
 }
 
-func (b *nativeGitBackend) readTreeRecursive(hash plumbing.Hash) ([]gitTreePathEntry, error) {
+func (b *nativeGitBackend) readTreeRecursive(hash gitHash) ([]gitTreePathEntry, error) {
 	stdout, stderr, err := b.runCapture(nil, "ls-tree", "-r", "-t", "-z", hash.String())
 	if err != nil {
 		return nil, wrapGitStderrError(fmt.Sprintf("git: read tree recursive %s", hash), stderr, err)
@@ -432,13 +446,13 @@ func (b *nativeGitBackend) readTreeRecursive(hash plumbing.Hash) ([]gitTreePathE
 	return entries, nil
 }
 
-func (b *nativeGitBackend) readBlobsBatch(hashes []plumbing.Hash) (map[plumbing.Hash][]byte, error) {
+func (b *nativeGitBackend) readBlobsBatch(hashes []gitHash) (map[gitHash][]byte, error) {
 	if len(hashes) == 0 {
-		return map[plumbing.Hash][]byte{}, nil
+		return map[gitHash][]byte{}, nil
 	}
 
-	unique := make([]plumbing.Hash, 0, len(hashes))
-	seen := make(map[plumbing.Hash]struct{}, len(hashes))
+	unique := make([]gitHash, 0, len(hashes))
+	seen := make(map[gitHash]struct{}, len(hashes))
 	for _, hash := range hashes {
 		if _, ok := seen[hash]; ok {
 			continue
@@ -458,7 +472,7 @@ func (b *nativeGitBackend) readBlobsBatch(hashes []plumbing.Hash) (map[plumbing.
 		return nil, wrapGitStderrError("git: batch read blobs", stderr, err)
 	}
 
-	result := make(map[plumbing.Hash][]byte, len(unique))
+	result := make(map[gitHash][]byte, len(unique))
 	reader := bufio.NewReader(bytes.NewReader(stdout))
 	for _, wantHash := range unique {
 		header, readErr := reader.ReadString('\n')
@@ -503,15 +517,15 @@ func (b *nativeGitBackend) readBlobsBatch(hashes []plumbing.Hash) (map[plumbing.
 	return result, nil
 }
 
-func (b *nativeGitBackend) writeBlob(data []byte) (plumbing.Hash, error) {
+func (b *nativeGitBackend) writeBlob(data []byte) (gitHash, error) {
 	stdout, stderr, err := b.runCapture(data, "hash-object", "-w", "--stdin")
 	if err != nil {
-		return plumbing.ZeroHash, wrapGitStderrError("git: write blob", stderr, err)
+		return "", wrapGitStderrError("git: write blob", stderr, err)
 	}
 	return parseHash(strings.TrimSpace(string(stdout)))
 }
 
-func (b *nativeGitBackend) writeTree(entries []gitTreeEntry) (plumbing.Hash, error) {
+func (b *nativeGitBackend) writeTree(entries []gitTreeEntry) (gitHash, error) {
 	normalized := append([]gitTreeEntry(nil), entries...)
 	sort.Slice(normalized, func(i, j int) bool {
 		left := normalized[i].Name
@@ -528,19 +542,19 @@ func (b *nativeGitBackend) writeTree(entries []gitTreeEntry) (plumbing.Hash, err
 	var input bytes.Buffer
 	for _, entry := range normalized {
 		if strings.Contains(entry.Name, "/") {
-			return plumbing.ZeroHash, fmt.Errorf("git: write tree entry %q must not contain slash", entry.Name)
+			return "", fmt.Errorf("git: write tree entry %q must not contain slash", entry.Name)
 		}
 		if entry.Name == "" {
-			return plumbing.ZeroHash, fmt.Errorf("git: write tree entry name is empty")
+			return "", fmt.Errorf("git: write tree entry name is empty")
 		}
-		if !plumbing.IsHash(entry.Hash.String()) {
-			return plumbing.ZeroHash, fmt.Errorf("git: write tree entry %q has invalid hash %q", entry.Name, entry.Hash)
+		if !isCanonicalHash(entry.Hash.String()) {
+			return "", fmt.Errorf("git: write tree entry %q has invalid hash %q", entry.Name, entry.Hash)
 		}
 		if entry.Type != "tree" && entry.Type != "blob" {
-			return plumbing.ZeroHash, fmt.Errorf("git: write tree entry %q has unsupported type %q", entry.Name, entry.Type)
+			return "", fmt.Errorf("git: write tree entry %q has unsupported type %q", entry.Name, entry.Type)
 		}
 		if entry.Mode == "" {
-			return plumbing.ZeroHash, fmt.Errorf("git: write tree entry %q mode is empty", entry.Name)
+			return "", fmt.Errorf("git: write tree entry %q mode is empty", entry.Name)
 		}
 		input.WriteString(entry.Mode)
 		input.WriteByte(' ')
@@ -554,17 +568,17 @@ func (b *nativeGitBackend) writeTree(entries []gitTreeEntry) (plumbing.Hash, err
 
 	stdout, stderr, err := b.runCapture(input.Bytes(), "mktree", "-z")
 	if err != nil {
-		return plumbing.ZeroHash, wrapGitStderrError("git: write tree", stderr, err)
+		return "", wrapGitStderrError("git: write tree", stderr, err)
 	}
 	return parseHash(strings.TrimSpace(string(stdout)))
 }
 
-func (b *nativeGitBackend) writeCommit(req gitCommitWriteRequest) (plumbing.Hash, error) {
-	if req.TreeHash == plumbing.ZeroHash {
-		return plumbing.ZeroHash, fmt.Errorf("git: write commit tree hash is zero")
+func (b *nativeGitBackend) writeCommit(req gitCommitWriteRequest) (gitHash, error) {
+	if req.TreeHash.IsZero() {
+		return "", fmt.Errorf("git: write commit tree hash is zero")
 	}
 	if strings.TrimSpace(req.Message) == "" {
-		return plumbing.ZeroHash, fmt.Errorf("git: write commit message is empty")
+		return "", fmt.Errorf("git: write commit message is empty")
 	}
 
 	when := req.When.UTC()
@@ -602,7 +616,7 @@ func (b *nativeGitBackend) writeCommit(req gitCommitWriteRequest) (plumbing.Hash
 
 	stdout, stderr, err := runCommandCapture(cmd, nil)
 	if err != nil {
-		return plumbing.ZeroHash, wrapGitStderrError("git: write commit", stderr, err)
+		return "", wrapGitStderrError("git: write commit", stderr, err)
 	}
 	return parseHash(strings.TrimSpace(string(stdout)))
 }
@@ -674,12 +688,8 @@ func parseLsTreeRecord(record []byte) (gitTreeEntry, string, error) {
 	return entry, path, nil
 }
 
-func parseHash(raw string) (plumbing.Hash, error) {
-	trimmed := strings.TrimSpace(strings.ToLower(raw))
-	if !plumbing.IsHash(trimmed) {
-		return plumbing.ZeroHash, fmt.Errorf("invalid hash %q", raw)
-	}
-	return plumbing.NewHash(trimmed), nil
+func parseHash(raw string) (gitHash, error) {
+	return normalizeHash(raw)
 }
 
 func runCommandCapture(cmd *exec.Cmd, stdin []byte) ([]byte, []byte, error) {

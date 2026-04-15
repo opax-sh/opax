@@ -36,6 +36,14 @@ type opaxSentinel struct {
 	CreatedBy     string `json:"created_by"`
 }
 
+func mustCanonicalHash(t *testing.T, raw string) plumbing.Hash {
+	t.Helper()
+	if !plumbing.IsHash(raw) {
+		t.Fatalf("invalid canonical hash %q", raw)
+	}
+	return plumbing.NewHash(raw)
+}
+
 func TestDiscoverRepoStandard(t *testing.T) {
 	repoRoot := initGitRepo(t)
 
@@ -321,7 +329,7 @@ func TestEnsureOpaxBranchCreatesRoot(t *testing.T) {
 	}
 
 	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, tip))
 	if err != nil {
 		t.Fatalf("CommitObject(%s) error = %v", tip, err)
 	}
@@ -352,13 +360,29 @@ func TestEnsureOpaxBranchSentinel(t *testing.T) {
 	}
 
 	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, tip))
 	if err != nil {
 		t.Fatalf("CommitObject(%s) error = %v", tip, err)
 	}
 
 	sentinel := readSentinelFromCommit(t, commit)
 	assertExpectedSentinel(t, sentinel)
+}
+
+func TestEnsureOpaxBranchReturnsCanonicalHash(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	tip, err := internalgit.EnsureOpaxBranch(ctx)
+	if err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+	if !plumbing.IsHash(tip) {
+		t.Fatalf("EnsureOpaxBranch() tip = %q, want canonical 40-char hash", tip)
+	}
+	if tip != strings.TrimSpace(strings.ToLower(tip)) {
+		t.Fatalf("EnsureOpaxBranch() tip = %q, want canonical lowercase hash", tip)
+	}
 }
 
 func TestEnsureOpaxBranchIdempotent(t *testing.T) {
@@ -394,7 +418,7 @@ func TestEnsureOpaxBranchConcurrentBootstrap(t *testing.T) {
 
 	const writers = 12
 	errCh := make(chan error, writers)
-	tipCh := make(chan plumbing.Hash, writers)
+	tipCh := make(chan string, writers)
 	var wg sync.WaitGroup
 
 	for i := 0; i < writers; i++ {
@@ -424,9 +448,9 @@ func TestEnsureOpaxBranchConcurrentBootstrap(t *testing.T) {
 		t.Fatalf("EnsureOpaxBranch() concurrent call error = %v", err)
 	}
 
-	var expectedTip plumbing.Hash
+	var expectedTip string
 	for tip := range tipCh {
-		if expectedTip == plumbing.ZeroHash {
+		if expectedTip == "" {
 			expectedTip = tip
 			continue
 		}
@@ -434,7 +458,7 @@ func TestEnsureOpaxBranchConcurrentBootstrap(t *testing.T) {
 			t.Fatalf("concurrent EnsureOpaxBranch() tip mismatch: got=%s want=%s", tip, expectedTip)
 		}
 	}
-	if expectedTip == plumbing.ZeroHash {
+	if expectedTip == "" {
 		t.Fatal("EnsureOpaxBranch() returned zero hash for all concurrent callers")
 	}
 
@@ -443,11 +467,11 @@ func TestEnsureOpaxBranchConcurrentBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reference(%s) error = %v", opaxBranchRef, err)
 	}
-	if ref.Hash() != expectedTip {
+	if ref.Hash() != mustCanonicalHash(t, expectedTip) {
 		t.Fatalf("branch tip = %s, want %s", ref.Hash(), expectedTip)
 	}
 
-	commit, err := repo.CommitObject(expectedTip)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, expectedTip))
 	if err != nil {
 		t.Fatalf("CommitObject(%s) error = %v", expectedTip, err)
 	}
@@ -488,7 +512,7 @@ func TestEnsureOpaxBranchRecoversAfterSelfHeldLockReleaseWithoutBranch(t *testin
 	defer heldLock.Release()
 
 	type ensureResult struct {
-		tip plumbing.Hash
+		tip string
 		err error
 	}
 	resultCh := make(chan ensureResult, 1)
@@ -512,7 +536,7 @@ func TestEnsureOpaxBranchRecoversAfterSelfHeldLockReleaseWithoutBranch(t *testin
 		if result.err != nil {
 			t.Fatalf("EnsureOpaxBranch() error after lock release = %v", result.err)
 		}
-		if result.tip == plumbing.ZeroHash {
+		if result.tip == "" {
 			t.Fatal("EnsureOpaxBranch() tip = zero hash after lock release")
 		}
 	case <-time.After(lock.DefaultTimeout + time.Second):
@@ -535,7 +559,7 @@ func TestValidateOpaxBranchRejectsSymbolicRef(t *testing.T) {
 
 	repo := mustOpenRepo(t, repoRoot)
 	symbolTarget := plumbing.ReferenceName("refs/heads/opax-v1-concrete")
-	if err := repo.Storer.SetReference(plumbing.NewHashReference(symbolTarget, tip)); err != nil {
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(symbolTarget, mustCanonicalHash(t, tip))); err != nil {
 		t.Fatalf("SetReference(%s) error = %v", symbolTarget, err)
 	}
 	if err := repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.ReferenceName(opaxBranchRef), symbolTarget)); err != nil {
@@ -656,6 +680,16 @@ func TestEnsureOpaxBranchLinkedWorktreeUsesCommonRepoState(t *testing.T) {
 	}
 }
 
+func TestGetOpaxBranchTipMissingBranchIsTyped(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	_, err := internalgit.GetOpaxBranchTip(ctx)
+	if !errors.Is(err, internalgit.ErrOpaxBranchNotFound) {
+		t.Fatalf("GetOpaxBranchTip() error = %v, want ErrOpaxBranchNotFound", err)
+	}
+}
+
 func TestWriteRecordSessionPath(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
@@ -680,14 +714,10 @@ func TestWriteRecordSessionPath(t *testing.T) {
 	if result.RecordRoot != wantRoot {
 		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
 	}
-	if result.BranchTip != result.CommitHash {
-		t.Fatalf("BranchTip = %s, want CommitHash %s", result.BranchTip, result.CommitHash)
-	}
-
 	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(result.CommitHash)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, result.BranchTip))
 	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
+		t.Fatalf("CommitObject(%s) error = %v", result.BranchTip, err)
 	}
 	if strings.TrimSuffix(commit.Message, "\n") != "opax: write sessions "+recordID {
 		t.Fatalf("commit message = %q, want %q", commit.Message, "opax: write sessions "+recordID)
@@ -731,9 +761,9 @@ func TestWriteRecordAllowsDirectoryAndPrefixedFileNames(t *testing.T) {
 	}
 
 	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(result.CommitHash)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, result.BranchTip))
 	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
+		t.Fatalf("CommitObject(%s) error = %v", result.BranchTip, err)
 	}
 
 	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata/details.json")); got != `{"nested":true}` {
@@ -769,9 +799,9 @@ func TestWriteRecordSavePath(t *testing.T) {
 	}
 
 	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(result.CommitHash)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, result.BranchTip))
 	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
+		t.Fatalf("CommitObject(%s) error = %v", result.BranchTip, err)
 	}
 	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata.json")); got == "" {
 		t.Fatal("metadata.json content = empty, want non-empty")
@@ -903,6 +933,51 @@ func TestWriteRecordExpectedTipMismatch(t *testing.T) {
 	}
 }
 
+func TestWriteRecordNormalizesExpectedTip(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	initialTip, err := internalgit.EnsureOpaxBranch(ctx)
+	if err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	normalizedTip := " \n\t" + strings.ToUpper(initialTip) + " \t"
+	result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection:  "sessions",
+		RecordID:    types.NewSessionID().String(),
+		Files:       []internalgit.RecordFile{{Path: "metadata.json", Content: []byte("{}")}},
+		ExpectedTip: &normalizedTip,
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+	if !plumbing.IsHash(result.BranchTip) {
+		t.Fatalf("WriteRecord().BranchTip = %q, want canonical hash", result.BranchTip)
+	}
+}
+
+func TestWriteRecordRejectsAbbreviatedExpectedTip(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	initialTip, err := internalgit.EnsureOpaxBranch(ctx)
+	if err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+	abbreviatedTip := initialTip[:12]
+
+	_, err = internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection:  "sessions",
+		RecordID:    types.NewSessionID().String(),
+		Files:       []internalgit.RecordFile{{Path: "metadata.json", Content: []byte("{}")}},
+		ExpectedTip: &abbreviatedTip,
+	})
+	if !errors.Is(err, internalgit.ErrInvalidHash) {
+		t.Fatalf("WriteRecord() error = %v, want ErrInvalidHash", err)
+	}
+}
+
 func TestWriteRecordDuplicateRace(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
@@ -999,7 +1074,7 @@ func TestWriteRecordConcurrentDistinctIDs(t *testing.T) {
 		t.Fatalf("GetOpaxBranchTip() error = %v", err)
 	}
 	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, tip))
 	if err != nil {
 		t.Fatalf("CommitObject(%s) error = %v", tip, err)
 	}
@@ -1068,7 +1143,7 @@ func TestWriteRecordConcurrentLinkedWorktrees(t *testing.T) {
 		t.Fatalf("GetOpaxBranchTip() error = %v", err)
 	}
 	repo := mustOpenRepo(t, mainRepo)
-	commit, err := repo.CommitObject(tip)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, tip))
 	if err != nil {
 		t.Fatalf("CommitObject(%s) error = %v", tip, err)
 	}
@@ -1107,7 +1182,7 @@ func TestWriteRecordPreservesSentinel(t *testing.T) {
 		t.Fatalf("GetOpaxBranchTip() error = %v", err)
 	}
 	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
+	commit, err := repo.CommitObject(mustCanonicalHash(t, tip))
 	if err != nil {
 		t.Fatalf("CommitObject(%s) error = %v", tip, err)
 	}
@@ -1477,8 +1552,8 @@ func TestReadErrorsAreTyped(t *testing.T) {
 	branchMissingRoot := initGitRepo(t)
 	branchMissingCtx := mustDiscoverRepo(t, branchMissingRoot)
 	_, err := internalgit.ReadRecord(branchMissingCtx, "sessions", types.NewSessionID().String())
-	if !errors.Is(err, plumbing.ErrReferenceNotFound) {
-		t.Fatalf("ReadRecord() branch-missing error = %v, want plumbing.ErrReferenceNotFound", err)
+	if !errors.Is(err, internalgit.ErrOpaxBranchNotFound) {
+		t.Fatalf("ReadRecord() branch-missing error = %v, want ErrOpaxBranchNotFound", err)
 	}
 
 	repoRoot := initGitRepo(t)

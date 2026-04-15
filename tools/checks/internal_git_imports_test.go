@@ -15,11 +15,7 @@ import (
 
 const goGitImportPrefix = "github.com/go-git/go-git/v5"
 
-var allowedInternalGitImports = map[string]struct{}{
-	"github.com/go-git/go-git/v5/plumbing": {},
-}
-
-func TestInternalGitProductionFilesOnlyUseAllowedGoGitImports(t *testing.T) {
+func TestInternalGitProductionFilesDoNotImportGoGit(t *testing.T) {
 	root := repoRoot(t)
 	internalGitDir := filepath.Join(root, "internal", "git")
 	fset := token.NewFileSet()
@@ -49,9 +45,6 @@ func TestInternalGitProductionFilesOnlyUseAllowedGoGitImports(t *testing.T) {
 			if !strings.HasPrefix(importPath, goGitImportPrefix) {
 				continue
 			}
-			if _, ok := allowedInternalGitImports[importPath]; ok {
-				continue
-			}
 
 			relPath, err := filepath.Rel(root, path)
 			if err != nil {
@@ -67,7 +60,7 @@ func TestInternalGitProductionFilesOnlyUseAllowedGoGitImports(t *testing.T) {
 
 	if len(violations) > 0 {
 		slices.Sort(violations)
-		t.Fatalf("production internal/git imports must stay on the FEAT-0012 compatibility surface:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf("production internal/git imports must not use go-git:\n%s", strings.Join(violations, "\n"))
 	}
 }
 

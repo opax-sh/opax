@@ -81,6 +81,17 @@ Until that follow-up lands, Opax is native Git in production behavior but not fu
 
 ---
 
+## Closeout Note (2026-04-15)
+
+- Stage 1 completed the caller-surface contract migration to canonical string hashes and removed the frozen non-test `go-git` production imports.
+- Stage 2 replaced the remaining `go-git` test/smoke helpers with native Git CLI helpers and removed `github.com/go-git/go-git/v5` from the module graph.
+- Closeout verification commands:
+  - `go test ./internal/git/...`
+  - `go test ./...`
+  - `make test`
+
+---
+
 ## Test Plan
 
 - Keep the existing FEAT-0012 native-backend proof gates green while decoupling the API surface.

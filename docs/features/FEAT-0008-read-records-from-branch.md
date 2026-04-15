@@ -31,13 +31,13 @@ an internal primitive, not the user-facing query surface, and includes:
 
 ```go
 type ReadResult struct {
-    BranchTip  plumbing.Hash
+    BranchTip  string
     RecordRoot string
     Files      map[string][]byte
 }
 
 type RecordLocator struct {
-    BranchTip  plumbing.Hash
+    BranchTip  string
     Collection string
     RecordID   string
     RecordRoot string
@@ -47,10 +47,13 @@ func ReadRecord(ctx *RepoContext, collection, recordID string) (*ReadResult, err
 func ReadFileAtPath(ctx *RepoContext, path string) ([]byte, error)
 func WalkRecords(ctx *RepoContext, visit func(locator RecordLocator) error) error
 
+var ErrOpaxBranchNotFound = errors.New("git: opax branch not found")
 var ErrRecordNotFound = errors.New("git: record not found")
 var ErrFileNotFound = errors.New("git: file not found")
 var ErrMalformedTree = errors.New("git: malformed opax tree state")
 ```
+
+`ReadResult.BranchTip` and `RecordLocator.BranchTip` return canonical lowercase 40-character hashes.
 
 ### Shared Path Logic
 
@@ -110,7 +113,7 @@ Rules:
 The feature must expose typed error conditions that callers can match with
 `errors.Is`:
 
-- branch not initialized
+- branch not initialized (`ErrOpaxBranchNotFound`)
 - record not found
 - file not found
 - malformed tree state (expected blob, found tree or missing subtree)

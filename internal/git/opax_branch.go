@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/opax-sh/opax/internal/lock"
 )
 
@@ -48,10 +47,10 @@ func EnsureOpaxDir(ctx *RepoContext) error {
 
 // EnsureOpaxBranch creates refs/heads/opax/v1 if absent and validates it if
 // present. It returns the current branch tip after creation or validation.
-func EnsureOpaxBranch(ctx *RepoContext) (tip plumbing.Hash, err error) {
+func EnsureOpaxBranch(ctx *RepoContext) (tip string, err error) {
 	lockPath, err := opaxLockPath(ctx)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	timeout := lock.DefaultTimeout
@@ -60,23 +59,23 @@ func EnsureOpaxBranch(ctx *RepoContext) (tip plumbing.Hash, err error) {
 	for {
 		backend, err := openRepoFromContext(ctx)
 		if err != nil {
-			return plumbing.ZeroHash, err
+			return "", err
 		}
 
-		tip, _, err = resolveOpaxBranchTip(backend)
+		tipHash, _, err := resolveOpaxBranchTip(backend)
 		if err == nil {
 			if err := validateOpaxBranch(backend); err != nil {
-				return plumbing.ZeroHash, err
+				return "", err
 			}
-			return tip, nil
+			return tipHash.String(), nil
 		}
-		if !errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return plumbing.ZeroHash, err
+		if !errors.Is(err, ErrOpaxBranchNotFound) {
+			return "", err
 		}
 
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return plumbing.ZeroHash, fmt.Errorf("git: timed out waiting for opax branch bootstrap after %s", timeout)
+			return "", fmt.Errorf("git: timed out waiting for opax branch bootstrap after %s", timeout)
 		}
 
 		branchLock, err := lock.Acquire(lockPath, remaining)
@@ -86,67 +85,64 @@ func EnsureOpaxBranch(ctx *RepoContext) (tip plumbing.Hash, err error) {
 				time.Sleep(opaxBootstrapPoll)
 				continue
 			case errors.Is(err, lock.ErrLockTimeout):
-				return plumbing.ZeroHash, fmt.Errorf("git: timed out waiting for opax branch bootstrap after %s", timeout)
+				return "", fmt.Errorf("git: timed out waiting for opax branch bootstrap after %s", timeout)
 			default:
-				return plumbing.ZeroHash, fmt.Errorf("git: acquire bootstrap lock %s: %w", lockPath, err)
+				return "", fmt.Errorf("git: acquire bootstrap lock %s: %w", lockPath, err)
 			}
 		}
 
-		tip, err = ensureOpaxBranchWhileLocked(ctx)
+		tipHash, err = ensureOpaxBranchWhileLocked(ctx)
 		releaseErr := branchLock.Release()
 		if err == nil && releaseErr != nil {
 			err = fmt.Errorf("git: release bootstrap lock %s: %w", lockPath, releaseErr)
 		}
 		if err != nil {
-			return plumbing.ZeroHash, err
+			return "", err
 		}
-		return tip, nil
+		return tipHash.String(), nil
 	}
 }
 
-func ensureOpaxBranchWhileLocked(ctx *RepoContext) (plumbing.Hash, error) {
+func ensureOpaxBranchWhileLocked(ctx *RepoContext) (gitHash, error) {
 	backend, err := openRepoFromContext(ctx)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	tip, _, err := resolveOpaxBranchTip(backend)
 	if err == nil {
 		if err := validateOpaxBranch(backend); err != nil {
-			return plumbing.ZeroHash, err
+			return "", err
 		}
 		return tip, nil
 	}
-	if !errors.Is(err, plumbing.ErrReferenceNotFound) {
-		return plumbing.ZeroHash, err
+	if !errors.Is(err, ErrOpaxBranchNotFound) {
+		return "", err
 	}
 
 	tip, err = createOpaxBranch(backend)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 	if err := validateOpaxBranch(backend); err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	return tip, nil
 }
 
 // GetOpaxBranchTip returns the current opax/v1 tip if the branch exists.
-func GetOpaxBranchTip(ctx *RepoContext) (plumbing.Hash, error) {
+func GetOpaxBranchTip(ctx *RepoContext) (string, error) {
 	backend, err := openRepoFromContext(ctx)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	tip, _, err := resolveOpaxBranchTip(backend)
 	if err != nil {
-		if errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return plumbing.ZeroHash, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, err)
-		}
-		return plumbing.ZeroHash, err
+		return "", err
 	}
-	return tip, nil
+	return tip.String(), nil
 }
 
 // ValidateOpaxBranch verifies that the branch identity and sentinel are
@@ -159,32 +155,38 @@ func ValidateOpaxBranch(ctx *RepoContext) error {
 	return validateOpaxBranch(backend)
 }
 
-func resolveOpaxBranchTip(backend *nativeGitBackend) (plumbing.Hash, *gitCommit, error) {
-	refName := plumbing.ReferenceName(opaxBranchRef)
-	isSymbolic, target, err := backend.isSymbolicRef(refName)
+func resolveOpaxBranchTip(backend *nativeGitBackend) (gitHash, *gitCommit, error) {
+	ref, err := readOpaxBranchRef(backend)
 	if err != nil {
-		return plumbing.ZeroHash, nil, err
+		return "", nil, err
 	}
-	if isSymbolic {
-		return plumbing.ZeroHash, nil, fmt.Errorf("git: opax branch %s is symbolic ref to %s", opaxBranchRef, target)
-	}
-
-	ref, err := backend.readRef(refName)
+	commit, err := backend.readCommit(ref.hash)
 	if err != nil {
-		return plumbing.ZeroHash, nil, err
+		return "", nil, fmt.Errorf("git: opax branch %s does not point to a commit: %w", opaxBranchRef, err)
 	}
-	if ref == nil {
-		return plumbing.ZeroHash, nil, plumbing.ErrReferenceNotFound
-	}
-
-	commit, err := backend.readCommit(ref.Hash())
-	if err != nil {
-		return plumbing.ZeroHash, nil, fmt.Errorf("git: opax branch %s does not point to a commit: %w", opaxBranchRef, err)
-	}
-	return ref.Hash(), commit, nil
+	return ref.hash, commit, nil
 }
 
-func createOpaxBranch(backend *nativeGitBackend) (plumbing.Hash, error) {
+func readOpaxBranchRef(backend *nativeGitBackend) (*gitRef, error) {
+	isSymbolic, target, err := backend.isSymbolicRef(opaxBranchRef)
+	if err != nil {
+		return nil, err
+	}
+	if isSymbolic {
+		return nil, fmt.Errorf("git: opax branch %s is symbolic ref to %s", opaxBranchRef, target)
+	}
+
+	ref, err := backend.readRef(opaxBranchRef)
+	if err != nil {
+		return nil, err
+	}
+	if ref == nil {
+		return nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, ErrOpaxBranchNotFound)
+	}
+	return ref, nil
+}
+
+func createOpaxBranch(backend *nativeGitBackend) (gitHash, error) {
 	sentinel := opaxBranchSentinel{
 		Branch:        opaxBranchName,
 		LayoutVersion: opaxLayoutVersion,
@@ -192,13 +194,13 @@ func createOpaxBranch(backend *nativeGitBackend) (plumbing.Hash, error) {
 	}
 	data, err := json.MarshalIndent(sentinel, "", "  ")
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("git: encode %s: %w", opaxSentinelPath, err)
+		return "", fmt.Errorf("git: encode %s: %w", opaxSentinelPath, err)
 	}
 	data = append(data, '\n')
 
 	blobHash, err := backend.writeBlob(data)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 	metaTreeHash, err := backend.writeTree([]gitTreeEntry{{
 		Name: "version.json",
@@ -207,7 +209,7 @@ func createOpaxBranch(backend *nativeGitBackend) (plumbing.Hash, error) {
 		Hash: blobHash,
 	}})
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 	rootTreeHash, err := backend.writeTree([]gitTreeEntry{{
 		Name: "meta",
@@ -216,7 +218,7 @@ func createOpaxBranch(backend *nativeGitBackend) (plumbing.Hash, error) {
 		Hash: metaTreeHash,
 	}})
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	now := time.Now().UTC()
@@ -231,15 +233,15 @@ func createOpaxBranch(backend *nativeGitBackend) (plumbing.Hash, error) {
 		When:           now,
 	})
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
-	zero := plumbing.ZeroHash
-	if err := backend.updateRefCAS(plumbing.ReferenceName(opaxBranchRef), commitHash, &zero); err != nil {
+	zero := zeroGitHash
+	if err := backend.updateRefCAS(opaxBranchRef, commitHash, &zero); err != nil {
 		if errors.Is(err, errReferenceChanged) {
-			return plumbing.ZeroHash, fmt.Errorf("git: set ref %s: %w", opaxBranchRef, err)
+			return "", fmt.Errorf("git: set ref %s: %w", opaxBranchRef, err)
 		}
-		return plumbing.ZeroHash, fmt.Errorf("git: set ref %s: %w", opaxBranchRef, err)
+		return "", fmt.Errorf("git: set ref %s: %w", opaxBranchRef, err)
 	}
 
 	return commitHash, nil
@@ -250,23 +252,20 @@ func validateOpaxBranch(backend *nativeGitBackend) error {
 	return err
 }
 
-func resolveValidatedOpaxBranchTip(backend *nativeGitBackend) (plumbing.Hash, *gitCommit, error) {
+func resolveValidatedOpaxBranchTip(backend *nativeGitBackend) (gitHash, *gitCommit, error) {
 	tipHash, tipCommit, err := resolveOpaxBranchTip(backend)
 	if err != nil {
-		if errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return plumbing.ZeroHash, nil, fmt.Errorf("git: opax branch %s not found: %w", opaxBranchRef, err)
-		}
-		return plumbing.ZeroHash, nil, err
+		return "", nil, err
 	}
 
 	if err := validateResolvedOpaxBranchTip(backend, tipHash, tipCommit); err != nil {
-		return plumbing.ZeroHash, nil, err
+		return "", nil, err
 	}
 
 	return tipHash, tipCommit, nil
 }
 
-func validateResolvedOpaxBranchTip(backend *nativeGitBackend, tipHash plumbing.Hash, tipCommit *gitCommit) error {
+func validateResolvedOpaxBranchTip(backend *nativeGitBackend, tipHash gitHash, tipCommit *gitCommit) error {
 	tipSentinel, err := readOpaxSentinel(backend, tipCommit.Hash)
 	if err != nil {
 		return fmt.Errorf("git: validate opax branch tip %s: %w", tipHash, err)
@@ -291,10 +290,10 @@ func validateResolvedOpaxBranchTip(backend *nativeGitBackend, tipHash plumbing.H
 	return nil
 }
 
-func findLinearRootCommit(backend *nativeGitBackend, tipHash plumbing.Hash) (plumbing.Hash, error) {
+func findLinearRootCommit(backend *nativeGitBackend, tipHash gitHash) (gitHash, error) {
 	stdout, stderr, err := backend.runCapture(nil, "rev-list", "--min-parents=2", "--max-count=1", tipHash.String())
 	if err != nil {
-		return plumbing.ZeroHash, wrapGitStderrError(
+		return "", wrapGitStderrError(
 			fmt.Sprintf("git: scan opax branch ancestry %s", tipHash),
 			stderr,
 			err,
@@ -302,12 +301,12 @@ func findLinearRootCommit(backend *nativeGitBackend, tipHash plumbing.Hash) (plu
 	}
 	mergeCommit := strings.TrimSpace(string(stdout))
 	if mergeCommit != "" {
-		return plumbing.ZeroHash, fmt.Errorf("git: opax branch %s has non-linear ancestry at commit %s", opaxBranchRef, mergeCommit)
+		return "", fmt.Errorf("git: opax branch %s has non-linear ancestry at commit %s", opaxBranchRef, mergeCommit)
 	}
 
 	stdout, stderr, err = backend.runCapture(nil, "rev-list", "--max-parents=0", tipHash.String())
 	if err != nil {
-		return plumbing.ZeroHash, wrapGitStderrError(
+		return "", wrapGitStderrError(
 			fmt.Sprintf("git: resolve root commit for %s", tipHash),
 			stderr,
 			err,
@@ -315,19 +314,19 @@ func findLinearRootCommit(backend *nativeGitBackend, tipHash plumbing.Hash) (plu
 	}
 	roots := splitNonEmptyLines(stdout)
 	if len(roots) == 0 {
-		return plumbing.ZeroHash, fmt.Errorf("git: opax branch %s has no root commit", opaxBranchRef)
+		return "", fmt.Errorf("git: opax branch %s has no root commit", opaxBranchRef)
 	}
 	if len(roots) != 1 {
-		return plumbing.ZeroHash, fmt.Errorf("git: opax branch %s has multiple roots", opaxBranchRef)
+		return "", fmt.Errorf("git: opax branch %s has multiple roots", opaxBranchRef)
 	}
 	rootHash, err := parseHash(roots[0])
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("git: parse root commit %q: %w", roots[0], err)
+		return "", fmt.Errorf("git: parse root commit %q: %w", roots[0], err)
 	}
 	return rootHash, nil
 }
 
-func readOpaxSentinel(backend *nativeGitBackend, commitHash plumbing.Hash) (*opaxBranchSentinel, error) {
+func readOpaxSentinel(backend *nativeGitBackend, commitHash gitHash) (*opaxBranchSentinel, error) {
 	content, err := backend.readBlobAtPath(commitHash, opaxSentinelPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/go-git/go-git/v5/plumbing"
 )
 
 func TestPublishRefWithRetryRetriesOnChangedReference(t *testing.T) {
@@ -29,30 +27,30 @@ func TestPublishRefWithRetryRetriesOnChangedReference(t *testing.T) {
 	}
 
 	attempts := 0
-	refName := plumbing.ReferenceName(opaxBranchRef)
+	refName := opaxBranchRef
 
-	publishedRef, err := publishRefWithRetry(ctx, refName, func(backend *nativeGitBackend, currentRef *plumbing.Reference) (*plumbing.Reference, error) {
+	publishedRef, err := publishRefWithRetry(ctx, refName, func(backend *nativeGitBackend, currentRef *gitRef) (*gitRef, error) {
 		attempts++
 		if currentRef == nil {
 			t.Fatal("publish builder currentRef = nil, want existing opax branch tip")
 		}
 
 		if attempts == 1 {
-			conflictHash, err := writeChildCommit(concurrentBackend, currentRef.Hash(), "opax: conflict write")
+			conflictHash, err := writeChildCommit(concurrentBackend, currentRef.hash, "opax: conflict write")
 			if err != nil {
 				t.Fatalf("writeChildCommit(conflict) error = %v", err)
 			}
-			expected := currentRef.Hash()
+			expected := currentRef.hash
 			if err := concurrentBackend.updateRefCAS(refName, conflictHash, &expected); err != nil {
 				t.Fatalf("updateRefCAS(conflict) error = %v", err)
 			}
 		}
 
-		nextHash, err := writeChildCommit(backend, currentRef.Hash(), fmt.Sprintf("opax: publish attempt %d", attempts))
+		nextHash, err := writeChildCommit(backend, currentRef.hash, fmt.Sprintf("opax: publish attempt %d", attempts))
 		if err != nil {
 			return nil, err
 		}
-		return plumbing.NewHashReference(refName, nextHash), nil
+		return &gitRef{name: refName, hash: nextHash}, nil
 	})
 	if err != nil {
 		t.Fatalf("publishRefWithRetry() error = %v", err)
@@ -73,8 +71,8 @@ func TestPublishRefWithRetryRetriesOnChangedReference(t *testing.T) {
 	if currentRef == nil {
 		t.Fatalf("readRef(%s) returned nil", refName)
 	}
-	if currentRef.Hash() != publishedRef.Hash() {
-		t.Fatalf("published tip = %s, branch tip = %s", publishedRef.Hash(), currentRef.Hash())
+	if currentRef.hash != publishedRef.hash {
+		t.Fatalf("published tip = %s, branch tip = %s", publishedRef.hash, currentRef.hash)
 	}
 }
 
@@ -92,10 +90,10 @@ func TestPublishRefWithRetryRetriesWhenRefCreatedConcurrently(t *testing.T) {
 	}
 
 	attempts := 0
-	refName := plumbing.ReferenceName("refs/heads/opax/publish-retry-missing")
-	conflictHash := plumbing.ZeroHash
+	refName := "refs/heads/opax/publish-retry-missing"
+	conflictHash := zeroGitHash
 
-	publishedRef, err := publishRefWithRetry(ctx, refName, func(backend *nativeGitBackend, currentRef *plumbing.Reference) (*plumbing.Reference, error) {
+	publishedRef, err := publishRefWithRetry(ctx, refName, func(backend *nativeGitBackend, currentRef *gitRef) (*gitRef, error) {
 		attempts++
 
 		if attempts == 1 {
@@ -108,7 +106,7 @@ func TestPublishRefWithRetryRetriesWhenRefCreatedConcurrently(t *testing.T) {
 			if err != nil {
 				t.Fatalf("writeRootCommit(conflict) error = %v", err)
 			}
-			zero := plumbing.ZeroHash
+			zero := zeroGitHash
 			if err := concurrentBackend.updateRefCAS(refName, conflictHash, &zero); err != nil {
 				t.Fatalf("updateRefCAS(conflict) error = %v", err)
 			}
@@ -117,17 +115,17 @@ func TestPublishRefWithRetryRetriesWhenRefCreatedConcurrently(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			return plumbing.NewHashReference(refName, nextHash), nil
+			return &gitRef{name: refName, hash: nextHash}, nil
 		}
 
 		if currentRef == nil {
 			t.Fatal("publish builder currentRef = nil on retry, want competing ref tip")
 		}
-		nextHash, err := writeChildCommit(backend, currentRef.Hash(), fmt.Sprintf("opax: publish attempt %d", attempts))
+		nextHash, err := writeChildCommit(backend, currentRef.hash, fmt.Sprintf("opax: publish attempt %d", attempts))
 		if err != nil {
 			return nil, err
 		}
-		return plumbing.NewHashReference(refName, nextHash), nil
+		return &gitRef{name: refName, hash: nextHash}, nil
 	})
 	if err != nil {
 		t.Fatalf("publishRefWithRetry() error = %v", err)
@@ -136,7 +134,7 @@ func TestPublishRefWithRetryRetriesWhenRefCreatedConcurrently(t *testing.T) {
 	if attempts < 2 {
 		t.Fatalf("publishRefWithRetry() attempts = %d, want >= 2", attempts)
 	}
-	if conflictHash == plumbing.ZeroHash {
+	if conflictHash.IsZero() {
 		t.Fatal("conflictHash = zero hash, want recorded concurrent write")
 	}
 
@@ -151,13 +149,13 @@ func TestPublishRefWithRetryRetriesWhenRefCreatedConcurrently(t *testing.T) {
 	if currentRef == nil {
 		t.Fatalf("readRef(%s) returned nil", refName)
 	}
-	if currentRef.Hash() != publishedRef.Hash() {
-		t.Fatalf("published tip = %s, branch tip = %s", publishedRef.Hash(), currentRef.Hash())
+	if currentRef.hash != publishedRef.hash {
+		t.Fatalf("published tip = %s, branch tip = %s", publishedRef.hash, currentRef.hash)
 	}
 
-	publishedCommit, err := backend.readCommit(publishedRef.Hash())
+	publishedCommit, err := backend.readCommit(publishedRef.hash)
 	if err != nil {
-		t.Fatalf("readCommit(%s) error = %v", publishedRef.Hash(), err)
+		t.Fatalf("readCommit(%s) error = %v", publishedRef.hash, err)
 	}
 	if len(publishedCommit.ParentHashes) != 1 {
 		t.Fatalf("published commit parent count = %d, want 1", len(publishedCommit.ParentHashes))
@@ -179,16 +177,16 @@ func TestRefPublishBackoffCaps(t *testing.T) {
 	}
 }
 
-func writeChildCommit(backend *nativeGitBackend, parent plumbing.Hash, message string) (plumbing.Hash, error) {
+func writeChildCommit(backend *nativeGitBackend, parent gitHash, message string) (gitHash, error) {
 	parentCommit, err := backend.readCommit(parent)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	now := time.Now().UTC()
 	return backend.writeCommit(gitCommitWriteRequest{
 		TreeHash:       parentCommit.TreeHash,
-		ParentHashes:   []plumbing.Hash{parent},
+		ParentHashes:   []gitHash{parent},
 		Message:        message,
 		AuthorName:     opaxAuthorName,
 		AuthorEmail:    opaxAuthorEmail,
@@ -198,10 +196,10 @@ func writeChildCommit(backend *nativeGitBackend, parent plumbing.Hash, message s
 	})
 }
 
-func writeRootCommit(backend *nativeGitBackend, message string) (plumbing.Hash, error) {
+func writeRootCommit(backend *nativeGitBackend, message string) (gitHash, error) {
 	treeHash, err := backend.writeTree(nil)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 
 	now := time.Now().UTC()

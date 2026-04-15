@@ -5,15 +5,13 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/go-git/go-git/v5/plumbing"
 )
 
 func publishRefWithRetry(
 	ctx *RepoContext,
-	refName plumbing.ReferenceName,
+	refName string,
 	build refPublishBuilder,
-) (*plumbing.Reference, error) {
+) (*gitRef, error) {
 	if build == nil {
 		return nil, fmt.Errorf("git: publish ref %s: builder is nil", refName)
 	}
@@ -37,8 +35,8 @@ func publishRefWithRetry(
 		if nextRef == nil {
 			return nil, fmt.Errorf("git: publish ref %s: builder returned nil reference", refName)
 		}
-		if nextRef.Name() != refName {
-			return nil, fmt.Errorf("git: publish ref %s: builder returned %s", refName, nextRef.Name())
+		if nextRef.name != refName {
+			return nil, fmt.Errorf("git: publish ref %s: builder returned %s", refName, nextRef.name)
 		}
 
 		err = publishReference(backend, nextRef, currentRef)
@@ -65,20 +63,17 @@ func publishRefWithRetry(
 	)
 }
 
-func publishReference(backend *nativeGitBackend, nextRef, currentRef *plumbing.Reference) error {
+func publishReference(backend *nativeGitBackend, nextRef, currentRef *gitRef) error {
 	if nextRef == nil {
 		return fmt.Errorf("git: publish ref: reference is nil")
 	}
-	if nextRef.Type() != plumbing.HashReference {
-		return fmt.Errorf("git: publish ref %s: unsupported reference type %s", nextRef.Name(), nextRef.Type())
-	}
 
-	var oldHash *plumbing.Hash
+	var oldHash *gitHash
 	if currentRef != nil {
-		hash := currentRef.Hash()
+		hash := currentRef.hash
 		oldHash = &hash
 	}
-	return backend.updateRefCAS(nextRef.Name(), nextRef.Hash(), oldHash)
+	return backend.updateRefCAS(nextRef.name, nextRef.hash, oldHash)
 }
 
 func isGitUpdateRefConflict(stderr string) bool {

@@ -50,14 +50,18 @@ The sentinel exists to make validation explicit. A directory shape alone is too 
 ```go
 // EnsureOpaxBranch creates refs/heads/opax/v1 if absent and validates it if present.
 // Returns the current branch tip after creation or validation.
-func EnsureOpaxBranch(ctx *RepoContext) (plumbing.Hash, error)
+func EnsureOpaxBranch(ctx *RepoContext) (string, error)
 
 // GetOpaxBranchTip returns the current opax/v1 tip if the branch exists.
-func GetOpaxBranchTip(ctx *RepoContext) (plumbing.Hash, error)
+func GetOpaxBranchTip(ctx *RepoContext) (string, error)
 
 // ValidateOpaxBranch verifies that the branch identity and sentinel are correct.
 func ValidateOpaxBranch(ctx *RepoContext) error
 ```
+
+`EnsureOpaxBranch` and `GetOpaxBranchTip` return canonical lowercase 40-character commit hashes.
+
+`GetOpaxBranchTip` and `ValidateOpaxBranch` return `ErrOpaxBranchNotFound` when `refs/heads/opax/v1` is absent. `EnsureOpaxBranch` remains the create-or-validate bootstrap API.
 
 ### Commit Identity
 

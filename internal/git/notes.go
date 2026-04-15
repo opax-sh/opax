@@ -11,13 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/opax-sh/opax/internal/types"
 )
 
 type normalizedNote struct {
 	Namespace   string
-	CommitHash  plumbing.Hash
+	CommitHash  gitHash
 	Version     int
 	Content     json.RawMessage
 	StoredBytes []byte
@@ -49,7 +48,7 @@ func WriteNote(ctx *RepoContext, note types.Note) error {
 	}
 
 	refName := noteRefName(normalized.Namespace)
-	if _, err := publishRefWithRetry(ctx, refName, func(backend *nativeGitBackend, currentRef *plumbing.Reference) (*plumbing.Reference, error) {
+	if _, err := publishRefWithRetry(ctx, refName, func(backend *nativeGitBackend, currentRef *gitRef) (*gitRef, error) {
 		nextRef, err := buildNoteWriteReference(backend, currentRef, normalized)
 		if err != nil {
 			return nil, err
@@ -80,6 +79,14 @@ func ReadNote(ctx *RepoContext, namespace, commitHash string) (*types.Note, erro
 	backend, err := openRepoFromContext(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if err := backend.ensureCommitExists(targetHash); err != nil {
+		return nil, fmt.Errorf(
+			"git: read note namespace %q commit %s: resolve target commit: %w",
+			normalizedNamespace,
+			targetHash,
+			err,
+		)
 	}
 
 	treeHash, err := resolveNoteNamespaceTree(backend, normalizedNamespace)
@@ -243,22 +250,22 @@ func normalizeNote(note types.Note) (*normalizedNote, error) {
 	}, nil
 }
 
-func normalizeNoteLookup(namespace, commitHash string) (string, plumbing.Hash, error) {
+func normalizeNoteLookup(namespace, commitHash string) (string, gitHash, error) {
 	normalizedNamespace, err := normalizeNoteNamespace(namespace)
 	if err != nil {
-		return "", plumbing.ZeroHash, err
+		return "", "", err
 	}
 
-	trimmedHash := strings.TrimSpace(strings.ToLower(commitHash))
-	if !plumbing.IsHash(trimmedHash) {
-		return "", plumbing.ZeroHash, fmt.Errorf(
-			"git: note namespace %q commit hash %q is invalid",
+	normalizedHash, err := normalizeHash(commitHash)
+	if err != nil {
+		return "", "", fmt.Errorf(
+			"git: note namespace %q commit hash %q is invalid: %w",
 			normalizedNamespace,
 			commitHash,
+			err,
 		)
 	}
-
-	return normalizedNamespace, plumbing.NewHash(trimmedHash), nil
+	return normalizedNamespace, normalizedHash, nil
 }
 
 func normalizeNoteNamespace(namespace string) (string, error) {
@@ -323,9 +330,9 @@ func marshalJSONFields(fields map[string]json.RawMessage) (json.RawMessage, erro
 
 func buildNoteWriteReference(
 	backend *nativeGitBackend,
-	currentRef *plumbing.Reference,
+	currentRef *gitRef,
 	note *normalizedNote,
-) (*plumbing.Reference, error) {
+) (*gitRef, error) {
 	rootTreeHash, parentHashes, err := resolveNoteWriteBase(backend, currentRef, note.Namespace)
 	if err != nil {
 		return nil, err
@@ -356,51 +363,51 @@ func buildNoteWriteReference(
 		return nil, err
 	}
 
-	return plumbing.NewHashReference(noteRefName(note.Namespace), commitHash), nil
+	return &gitRef{name: noteRefName(note.Namespace), hash: commitHash}, nil
 }
 
 func resolveNoteWriteBase(
 	backend *nativeGitBackend,
-	currentRef *plumbing.Reference,
+	currentRef *gitRef,
 	namespace string,
-) (plumbing.Hash, []plumbing.Hash, error) {
+) (gitHash, []gitHash, error) {
 	if currentRef == nil {
 		emptyTreeHash, err := backend.writeTree(nil)
 		if err != nil {
-			return plumbing.ZeroHash, nil, err
+			return "", nil, err
 		}
 		return emptyTreeHash, nil, nil
 	}
 
-	commit, err := backend.readCommit(currentRef.Hash())
+	commit, err := backend.readCommit(currentRef.hash)
 	if err != nil {
-		return plumbing.ZeroHash, nil, fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"git: write note namespace %q current ref %s is not a commit: %v: %w",
 			namespace,
-			currentRef.Hash(),
+			currentRef.hash,
 			err,
 			ErrMalformedNote,
 		)
 	}
 
-	return commit.TreeHash, []plumbing.Hash{currentRef.Hash()}, nil
+	return commit.TreeHash, []gitHash{currentRef.hash}, nil
 }
 
-func resolveNoteNamespaceTree(backend *nativeGitBackend, namespace string) (plumbing.Hash, error) {
+func resolveNoteNamespaceTree(backend *nativeGitBackend, namespace string) (gitHash, error) {
 	ref, err := backend.readRef(noteRefName(namespace))
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("git: read note ref %s: %w", noteRefName(namespace), err)
+		return "", fmt.Errorf("git: read note ref %s: %w", noteRefName(namespace), err)
 	}
 	if ref == nil {
-		return plumbing.ZeroHash, fmt.Errorf("git: note namespace %q: %w", namespace, ErrNoteNotFound)
+		return "", fmt.Errorf("git: note namespace %q: %w", namespace, ErrNoteNotFound)
 	}
 
-	commit, err := backend.readCommit(ref.Hash())
+	commit, err := backend.readCommit(ref.hash)
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf(
+		return "", fmt.Errorf(
 			"git: note namespace %q current ref %s is not a commit: %v: %w",
 			namespace,
-			ref.Hash(),
+			ref.hash,
 			err,
 			ErrMalformedNote,
 		)
@@ -409,7 +416,7 @@ func resolveNoteNamespaceTree(backend *nativeGitBackend, namespace string) (plum
 	return commit.TreeHash, nil
 }
 
-func readNotePayloadAtTarget(backend *nativeGitBackend, treeHash plumbing.Hash, targetHash plumbing.Hash) (*notePayload, error) {
+func readNotePayloadAtTarget(backend *nativeGitBackend, treeHash gitHash, targetHash gitHash) (*notePayload, error) {
 	rootEntries, err := backend.readTree(treeHash)
 	if err != nil {
 		return nil, fmt.Errorf("git: read note root tree %s: %v: %w", treeHash, err, ErrMalformedNote)
@@ -468,7 +475,7 @@ func readNotePayloadAtTarget(backend *nativeGitBackend, treeHash plumbing.Hash, 
 	return decodeStoredNotePayload(backend, flatEntry.Hash, targetHash.String())
 }
 
-func collectNotesFromTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash) ([]types.Note, error) {
+func collectNotesFromTree(backend *nativeGitBackend, rootTreeHash gitHash) ([]types.Note, error) {
 	rootEntries, err := backend.readTree(rootTreeHash)
 	if err != nil {
 		return nil, fmt.Errorf("git: list notes load root tree %s: %v: %w", rootTreeHash, err, ErrMalformedNote)
@@ -514,7 +521,7 @@ func collectNotesFromTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash)
 				}
 
 				commitHash := entry.Name + shardEntry.Name
-				if !isCanonicalHash(commitHash) || len(shardEntry.Name) != len(plumbing.ZeroHash.String())-noteFanoutPrefixLen {
+				if !isCanonicalHash(commitHash) || len(shardEntry.Name) != hashHexLength-noteFanoutPrefixLen {
 					return nil, fmt.Errorf(
 						"git: list notes invalid fanout path %q: %w",
 						pathpkg.Join(entry.Name, shardEntry.Name),
@@ -550,13 +557,13 @@ func collectNotesFromTree(backend *nativeGitBackend, rootTreeHash plumbing.Hash)
 
 func upsertNoteTree(
 	backend *nativeGitBackend,
-	rootTreeHash plumbing.Hash,
-	targetHash plumbing.Hash,
-	payloadBlobHash plumbing.Hash,
-) (plumbing.Hash, error) {
+	rootTreeHash gitHash,
+	targetHash gitHash,
+	payloadBlobHash gitHash,
+) (gitHash, error) {
 	rootEntries, err := backend.readTree(rootTreeHash)
 	if err != nil {
-		return plumbing.ZeroHash, fmt.Errorf("git: read note root tree %s: %w", rootTreeHash, err)
+		return "", fmt.Errorf("git: read note root tree %s: %w", rootTreeHash, err)
 	}
 
 	rootEntryMap := make(map[string]gitTreeEntry, len(rootEntries)+1)
@@ -571,7 +578,7 @@ func upsertNoteTree(
 	var shardEntries []gitTreeEntry
 	if found {
 		if !entryIsTree(shardEntry) {
-			return plumbing.ZeroHash, fmt.Errorf(
+			return "", fmt.Errorf(
 				"git: write note for %s expected shard directory %q: %w",
 				targetHash,
 				shard,
@@ -580,7 +587,7 @@ func upsertNoteTree(
 		}
 		shardEntries, err = backend.readTree(shardEntry.Hash)
 		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf(
+			return "", fmt.Errorf(
 				"git: write note for %s load shard tree %q (%s): %v: %w",
 				targetHash,
 				shard,
@@ -604,7 +611,7 @@ func upsertNoteTree(
 
 	shardTreeHash, err := writeTreeFromMap(backend, shardEntryMap)
 	if err != nil {
-		return plumbing.ZeroHash, err
+		return "", err
 	}
 	rootEntryMap[shard] = gitTreeEntry{
 		Name: shard,
@@ -616,7 +623,7 @@ func upsertNoteTree(
 	return writeTreeFromMap(backend, rootEntryMap)
 }
 
-func decodeStoredNotePayload(backend *nativeGitBackend, blobHash plumbing.Hash, target string) (*notePayload, error) {
+func decodeStoredNotePayload(backend *nativeGitBackend, blobHash gitHash, target string) (*notePayload, error) {
 	data, err := backend.readBlob(blobHash)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -661,19 +668,15 @@ func decodeStoredNotePayloadBytes(data []byte, target string) (*notePayload, err
 	}, nil
 }
 
-func noteRefName(namespace string) plumbing.ReferenceName {
-	return plumbing.ReferenceName(opaxNotesRefPrefix + namespace)
+func noteRefName(namespace string) string {
+	return opaxNotesRefPrefix + namespace
 }
 
-func notePathComponents(targetHash plumbing.Hash) (string, string) {
+func notePathComponents(targetHash gitHash) (string, string) {
 	hexHash := targetHash.String()
 	return hexHash[:noteFanoutPrefixLen], hexHash[noteFanoutPrefixLen:]
 }
 
-func isCanonicalHash(s string) bool {
-	return plumbing.IsHash(s)
-}
-
 func isNoteShard(s string) bool {
-	return len(s) == noteFanoutPrefixLen && plumbing.IsHash(s+strings.Repeat("0", len(plumbing.ZeroHash.String())-noteFanoutPrefixLen))
+	return len(s) == noteFanoutPrefixLen && isCanonicalHash(s+strings.Repeat("0", hashHexLength-noteFanoutPrefixLen))
 }

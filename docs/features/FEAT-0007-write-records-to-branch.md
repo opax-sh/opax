@@ -52,17 +52,20 @@ type WriteRequest struct {
     Collection  string
     RecordID    string
     Files       []RecordFile
-    ExpectedTip *plumbing.Hash
+    ExpectedTip *string
 }
 
 type WriteResult struct {
-    BranchTip   plumbing.Hash
-    CommitHash  plumbing.Hash
-    RecordRoot  string
+    BranchTip  string
+    RecordRoot string
 }
 
 func WriteRecord(ctx *RepoContext, req WriteRequest) (*WriteResult, error)
 ```
+
+`ExpectedTip`, when provided, is validated and normalized by `internal/git` as a canonical lowercase 40-character hash string. Abbreviated hashes are rejected.
+
+`WriteResult.BranchTip` is the published `opax/v1` tip encoded as a canonical lowercase 40-character string. Successful writes never return an empty tip.
 
 ### Ref Publication Contract
 

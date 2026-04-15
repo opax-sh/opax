@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/opax-sh/opax/internal/types"
 )
 
@@ -54,7 +53,7 @@ func ParseSaveTrailerFromCommit(ctx *RepoContext, commitHash string) (types.Save
 		return "", false, err
 	}
 
-	commit, err := backend.readCommit(targetHash)
+	commit, err := backend.readCommitForLookup(targetHash)
 	if err != nil {
 		return "", false, fmt.Errorf("git: parse save trailer from commit %s: resolve commit: %w", targetHash, err)
 	}
@@ -66,12 +65,12 @@ func ParseSaveTrailerFromCommit(ctx *RepoContext, commitHash string) (types.Save
 	return saveID, ok, nil
 }
 
-func normalizeCommitHash(commitHash string) (plumbing.Hash, error) {
-	trimmedHash := strings.TrimSpace(strings.ToLower(commitHash))
-	if !plumbing.IsHash(trimmedHash) {
-		return plumbing.ZeroHash, fmt.Errorf("git: commit hash %q is invalid", commitHash)
+func normalizeCommitHash(commitHash string) (gitHash, error) {
+	hash, err := normalizeHash(commitHash)
+	if err != nil {
+		return "", fmt.Errorf("git: commit hash %q is invalid: %w", commitHash, err)
 	}
-	return plumbing.NewHash(trimmedHash), nil
+	return hash, nil
 }
 
 func parseSaveTrailerWithGit(ctx *RepoContext, message []byte) (types.SaveID, bool, error) {

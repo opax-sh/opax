@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/opax-sh/opax/internal/types"
 )
 
@@ -158,14 +157,14 @@ func injectCheckpointDMalformedShardBlob(t *testing.T, ctx *RepoContext, collect
 
 	nextTip, err := backend.writeCommit(gitCommitWriteRequest{
 		TreeHash:     updatedRootTreeHash,
-		ParentHashes: []plumbing.Hash{tipHash},
+		ParentHashes: []gitHash{tipHash},
 		Message:      "opax: checkpoint d malformed walk fixture",
 	})
 	if err != nil {
 		t.Fatalf("writeCommit() error = %v", err)
 	}
 
-	if err := backend.updateRefCAS(plumbing.ReferenceName(opaxBranchRef), nextTip, &tipHash); err != nil {
+	if err := backend.updateRefCAS(opaxBranchRef, nextTip, &tipHash); err != nil {
 		t.Fatalf("updateRefCAS() error = %v", err)
 	}
 }

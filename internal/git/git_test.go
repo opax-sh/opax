@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -16,10 +17,6 @@ import (
 	"testing"
 	"time"
 
-	ggit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/filemode"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	internalgit "github.com/opax-sh/opax/internal/git"
 	"github.com/opax-sh/opax/internal/lock"
 	"github.com/opax-sh/opax/internal/types"
@@ -34,6 +31,48 @@ type opaxSentinel struct {
 	Branch        string `json:"branch"`
 	LayoutVersion int    `json:"layout_version"`
 	CreatedBy     string `json:"created_by"`
+}
+
+type testGitSignature struct {
+	Name  string
+	Email string
+}
+
+type testGitCommit struct {
+	Hash         string
+	TreeHash     string
+	Message      string
+	Author       testGitSignature
+	Committer    testGitSignature
+	ParentHashes []string
+}
+
+type testGitTreeEntry struct {
+	Name string
+	Mode string
+	Type string
+	Hash string
+}
+
+func mustCanonicalHash(t *testing.T, raw string) string {
+	t.Helper()
+	if !isCanonicalHash(raw) {
+		t.Fatalf("invalid canonical hash %q", raw)
+	}
+	return raw
+}
+
+func isCanonicalHash(raw string) bool {
+	if len(raw) != 40 {
+		return false
+	}
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func TestDiscoverRepoStandard(t *testing.T) {
@@ -320,13 +359,9 @@ func TestEnsureOpaxBranchCreatesRoot(t *testing.T) {
 		t.Fatalf("EnsureOpaxBranch() error = %v", err)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", tip, err)
-	}
-	if commit.NumParents() != 0 {
-		t.Fatalf("NumParents() = %d, want 0", commit.NumParents())
+	commit := readCommitInfo(t, repoRoot, mustCanonicalHash(t, tip))
+	if len(commit.ParentHashes) != 0 {
+		t.Fatalf("len(ParentHashes) = %d, want 0", len(commit.ParentHashes))
 	}
 	if strings.TrimSuffix(commit.Message, "\n") != "opax: initialize opax/v1" {
 		t.Fatalf("Message = %q, want %q", commit.Message, "opax: initialize opax/v1")
@@ -338,7 +373,7 @@ func TestEnsureOpaxBranchCreatesRoot(t *testing.T) {
 		t.Fatalf("Committer = %q <%s>, want Opax <opax@local>", commit.Committer.Name, commit.Committer.Email)
 	}
 
-	sentinel := readSentinelFromCommit(t, commit)
+	sentinel := readSentinelFromCommit(t, repoRoot, commit.Hash)
 	assertExpectedSentinel(t, sentinel)
 }
 
@@ -351,14 +386,24 @@ func TestEnsureOpaxBranchSentinel(t *testing.T) {
 		t.Fatalf("EnsureOpaxBranch() error = %v", err)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", tip, err)
-	}
-
-	sentinel := readSentinelFromCommit(t, commit)
+	sentinel := readSentinelFromCommit(t, repoRoot, mustCanonicalHash(t, tip))
 	assertExpectedSentinel(t, sentinel)
+}
+
+func TestEnsureOpaxBranchReturnsCanonicalHash(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	tip, err := internalgit.EnsureOpaxBranch(ctx)
+	if err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+	if !isCanonicalHash(tip) {
+		t.Fatalf("EnsureOpaxBranch() tip = %q, want canonical 40-char hash", tip)
+	}
+	if tip != strings.TrimSpace(strings.ToLower(tip)) {
+		t.Fatalf("EnsureOpaxBranch() tip = %q, want canonical lowercase hash", tip)
+	}
 }
 
 func TestEnsureOpaxBranchIdempotent(t *testing.T) {
@@ -394,7 +439,7 @@ func TestEnsureOpaxBranchConcurrentBootstrap(t *testing.T) {
 
 	const writers = 12
 	errCh := make(chan error, writers)
-	tipCh := make(chan plumbing.Hash, writers)
+	tipCh := make(chan string, writers)
 	var wg sync.WaitGroup
 
 	for i := 0; i < writers; i++ {
@@ -424,9 +469,9 @@ func TestEnsureOpaxBranchConcurrentBootstrap(t *testing.T) {
 		t.Fatalf("EnsureOpaxBranch() concurrent call error = %v", err)
 	}
 
-	var expectedTip plumbing.Hash
+	var expectedTip string
 	for tip := range tipCh {
-		if expectedTip == plumbing.ZeroHash {
+		if expectedTip == "" {
 			expectedTip = tip
 			continue
 		}
@@ -434,38 +479,28 @@ func TestEnsureOpaxBranchConcurrentBootstrap(t *testing.T) {
 			t.Fatalf("concurrent EnsureOpaxBranch() tip mismatch: got=%s want=%s", tip, expectedTip)
 		}
 	}
-	if expectedTip == plumbing.ZeroHash {
+	if expectedTip == "" {
 		t.Fatal("EnsureOpaxBranch() returned zero hash for all concurrent callers")
 	}
 
-	repo := mustOpenRepo(t, mainRepo)
-	ref, err := repo.Reference(plumbing.ReferenceName(opaxBranchRef), true)
-	if err != nil {
-		t.Fatalf("Reference(%s) error = %v", opaxBranchRef, err)
-	}
-	if ref.Hash() != expectedTip {
-		t.Fatalf("branch tip = %s, want %s", ref.Hash(), expectedTip)
+	refHash := readRefHash(t, mainRepo, opaxBranchRef)
+	if refHash != mustCanonicalHash(t, expectedTip) {
+		t.Fatalf("branch tip = %s, want %s", refHash, expectedTip)
 	}
 
-	commit, err := repo.CommitObject(expectedTip)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", expectedTip, err)
-	}
-
+	commit := readCommitInfo(t, mainRepo, mustCanonicalHash(t, expectedTip))
 	historyLen := 0
-	current := commit
+	currentHash := commit.Hash
 	for {
 		historyLen++
-		switch current.NumParents() {
+		current := readCommitInfo(t, mainRepo, currentHash)
+		switch len(current.ParentHashes) {
 		case 0:
 			goto done
 		case 1:
-			current, err = current.Parent(0)
-			if err != nil {
-				t.Fatalf("Parent(0) error = %v", err)
-			}
+			currentHash = current.ParentHashes[0]
 		default:
-			t.Fatalf("NumParents() = %d, want linear history", current.NumParents())
+			t.Fatalf("len(ParentHashes) = %d, want linear history", len(current.ParentHashes))
 		}
 	}
 
@@ -473,7 +508,7 @@ done:
 	if historyLen != 1 {
 		t.Fatalf("opax/v1 history length = %d, want 1", historyLen)
 	}
-	assertExpectedSentinel(t, readSentinelFromCommit(t, commit))
+	assertExpectedSentinel(t, readSentinelFromCommit(t, mainRepo, commit.Hash))
 }
 
 func TestEnsureOpaxBranchRecoversAfterSelfHeldLockReleaseWithoutBranch(t *testing.T) {
@@ -488,7 +523,7 @@ func TestEnsureOpaxBranchRecoversAfterSelfHeldLockReleaseWithoutBranch(t *testin
 	defer heldLock.Release()
 
 	type ensureResult struct {
-		tip plumbing.Hash
+		tip string
 		err error
 	}
 	resultCh := make(chan ensureResult, 1)
@@ -512,7 +547,7 @@ func TestEnsureOpaxBranchRecoversAfterSelfHeldLockReleaseWithoutBranch(t *testin
 		if result.err != nil {
 			t.Fatalf("EnsureOpaxBranch() error after lock release = %v", result.err)
 		}
-		if result.tip == plumbing.ZeroHash {
+		if result.tip == "" {
 			t.Fatal("EnsureOpaxBranch() tip = zero hash after lock release")
 		}
 	case <-time.After(lock.DefaultTimeout + time.Second):
@@ -533,14 +568,9 @@ func TestValidateOpaxBranchRejectsSymbolicRef(t *testing.T) {
 		t.Fatalf("EnsureOpaxBranch() error = %v", err)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	symbolTarget := plumbing.ReferenceName("refs/heads/opax-v1-concrete")
-	if err := repo.Storer.SetReference(plumbing.NewHashReference(symbolTarget, tip)); err != nil {
-		t.Fatalf("SetReference(%s) error = %v", symbolTarget, err)
-	}
-	if err := repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.ReferenceName(opaxBranchRef), symbolTarget)); err != nil {
-		t.Fatalf("SetReference(symbolic %s -> %s) error = %v", opaxBranchRef, symbolTarget, err)
-	}
+	symbolTarget := "refs/heads/opax-v1-concrete"
+	setHashRef(t, repoRoot, symbolTarget, mustCanonicalHash(t, tip))
+	setSymbolicRef(t, repoRoot, opaxBranchRef, symbolTarget)
 
 	err = internalgit.ValidateOpaxBranch(ctx)
 	if err == nil {
@@ -593,11 +623,14 @@ func TestValidateOpaxBranchWrongPayload(t *testing.T) {
 func TestValidateOpaxBranchNonCommitRef(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
-	repo := mustOpenRepo(t, repoRoot)
 
-	blobHash := writeBlobObject(t, repo, []byte("non-commit ref target"))
-	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(opaxBranchRef), blobHash)); err != nil {
-		t.Fatalf("SetReference(%s) error = %v", opaxBranchRef, err)
+	blobHash := writeBlobObject(t, repoRoot, []byte("non-commit ref target"))
+	refPath := filepath.Join(repoRoot, ".git", "refs", "heads", "opax", "v1")
+	if err := os.MkdirAll(filepath.Dir(refPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(refPath), err)
+	}
+	if err := os.WriteFile(refPath, []byte(blobHash+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", refPath, err)
 	}
 
 	err := internalgit.ValidateOpaxBranch(ctx)
@@ -656,6 +689,16 @@ func TestEnsureOpaxBranchLinkedWorktreeUsesCommonRepoState(t *testing.T) {
 	}
 }
 
+func TestGetOpaxBranchTipMissingBranchIsTyped(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	_, err := internalgit.GetOpaxBranchTip(ctx)
+	if !errors.Is(err, internalgit.ErrOpaxBranchNotFound) {
+		t.Fatalf("GetOpaxBranchTip() error = %v, want ErrOpaxBranchNotFound", err)
+	}
+}
+
 func TestWriteRecordSessionPath(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
@@ -680,15 +723,7 @@ func TestWriteRecordSessionPath(t *testing.T) {
 	if result.RecordRoot != wantRoot {
 		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
 	}
-	if result.BranchTip != result.CommitHash {
-		t.Fatalf("BranchTip = %s, want CommitHash %s", result.BranchTip, result.CommitHash)
-	}
-
-	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(result.CommitHash)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
-	}
+	commit := readCommitInfo(t, repoRoot, mustCanonicalHash(t, result.BranchTip))
 	if strings.TrimSuffix(commit.Message, "\n") != "opax: write sessions "+recordID {
 		t.Fatalf("commit message = %q, want %q", commit.Message, "opax: write sessions "+recordID)
 	}
@@ -699,7 +734,7 @@ func TestWriteRecordSessionPath(t *testing.T) {
 		t.Fatalf("Committer = %q <%s>, want Opax <opax@local>", commit.Committer.Name, commit.Committer.Email)
 	}
 
-	gotMetadata := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata.json"))
+	gotMetadata := readFileAtCommitPath(t, repoRoot, commit.Hash, pathpkg.Join(wantRoot, "metadata.json"))
 	if gotMetadata != `{"id":"`+recordID+`"}` {
 		t.Fatalf("metadata.json content = %q", gotMetadata)
 	}
@@ -730,16 +765,12 @@ func TestWriteRecordAllowsDirectoryAndPrefixedFileNames(t *testing.T) {
 		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(result.CommitHash)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
-	}
+	commit := readCommitInfo(t, repoRoot, mustCanonicalHash(t, result.BranchTip))
 
-	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata/details.json")); got != `{"nested":true}` {
+	if got := readFileAtCommitPath(t, repoRoot, commit.Hash, pathpkg.Join(wantRoot, "metadata/details.json")); got != `{"nested":true}` {
 		t.Fatalf("metadata/details.json content = %q", got)
 	}
-	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata.json")); got != `{"top":true}` {
+	if got := readFileAtCommitPath(t, repoRoot, commit.Hash, pathpkg.Join(wantRoot, "metadata.json")); got != `{"top":true}` {
 		t.Fatalf("metadata.json content = %q", got)
 	}
 }
@@ -768,12 +799,8 @@ func TestWriteRecordSavePath(t *testing.T) {
 		t.Fatalf("RecordRoot = %q, want %q", result.RecordRoot, wantRoot)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(result.CommitHash)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", result.CommitHash, err)
-	}
-	if got := readFileAtCommitPath(t, commit, pathpkg.Join(wantRoot, "metadata.json")); got == "" {
+	commit := readCommitInfo(t, repoRoot, mustCanonicalHash(t, result.BranchTip))
+	if got := readFileAtCommitPath(t, repoRoot, commit.Hash, pathpkg.Join(wantRoot, "metadata.json")); got == "" {
 		t.Fatal("metadata.json content = empty, want non-empty")
 	}
 }
@@ -903,6 +930,51 @@ func TestWriteRecordExpectedTipMismatch(t *testing.T) {
 	}
 }
 
+func TestWriteRecordNormalizesExpectedTip(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	initialTip, err := internalgit.EnsureOpaxBranch(ctx)
+	if err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+
+	normalizedTip := " \n\t" + strings.ToUpper(initialTip) + " \t"
+	result, err := internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection:  "sessions",
+		RecordID:    types.NewSessionID().String(),
+		Files:       []internalgit.RecordFile{{Path: "metadata.json", Content: []byte("{}")}},
+		ExpectedTip: &normalizedTip,
+	})
+	if err != nil {
+		t.Fatalf("WriteRecord() error = %v", err)
+	}
+	if !isCanonicalHash(result.BranchTip) {
+		t.Fatalf("WriteRecord().BranchTip = %q, want canonical hash", result.BranchTip)
+	}
+}
+
+func TestWriteRecordRejectsAbbreviatedExpectedTip(t *testing.T) {
+	repoRoot := initGitRepo(t)
+	ctx := mustDiscoverRepo(t, repoRoot)
+
+	initialTip, err := internalgit.EnsureOpaxBranch(ctx)
+	if err != nil {
+		t.Fatalf("EnsureOpaxBranch() error = %v", err)
+	}
+	abbreviatedTip := initialTip[:12]
+
+	_, err = internalgit.WriteRecord(ctx, internalgit.WriteRequest{
+		Collection:  "sessions",
+		RecordID:    types.NewSessionID().String(),
+		Files:       []internalgit.RecordFile{{Path: "metadata.json", Content: []byte("{}")}},
+		ExpectedTip: &abbreviatedTip,
+	})
+	if !errors.Is(err, internalgit.ErrInvalidHash) {
+		t.Fatalf("WriteRecord() error = %v, want ErrInvalidHash", err)
+	}
+}
+
 func TestWriteRecordDuplicateRace(t *testing.T) {
 	repoRoot := initGitRepo(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
@@ -998,14 +1070,10 @@ func TestWriteRecordConcurrentDistinctIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOpaxBranchTip() error = %v", err)
 	}
-	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", tip, err)
-	}
+	commit := readCommitInfo(t, repoRoot, mustCanonicalHash(t, tip))
 	for recordRoot := range roots {
 		path := pathpkg.Join(recordRoot, "metadata.json")
-		if got := readFileAtCommitPath(t, commit, path); got == "" {
+		if got := readFileAtCommitPath(t, repoRoot, commit.Hash, path); got == "" {
 			t.Fatalf("record path %q missing or empty", path)
 		}
 	}
@@ -1067,14 +1135,10 @@ func TestWriteRecordConcurrentLinkedWorktrees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOpaxBranchTip() error = %v", err)
 	}
-	repo := mustOpenRepo(t, mainRepo)
-	commit, err := repo.CommitObject(tip)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", tip, err)
-	}
+	commit := readCommitInfo(t, mainRepo, mustCanonicalHash(t, tip))
 	for recordRoot := range roots {
 		path := pathpkg.Join(recordRoot, "metadata.json")
-		if got := readFileAtCommitPath(t, commit, path); got == "" {
+		if got := readFileAtCommitPath(t, mainRepo, commit.Hash, path); got == "" {
 			t.Fatalf("linked-worktree record path %q missing or empty", path)
 		}
 	}
@@ -1106,12 +1170,8 @@ func TestWriteRecordPreservesSentinel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOpaxBranchTip() error = %v", err)
 	}
-	repo := mustOpenRepo(t, repoRoot)
-	commit, err := repo.CommitObject(tip)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", tip, err)
-	}
-	assertExpectedSentinel(t, readSentinelFromCommit(t, commit))
+	commit := readCommitInfo(t, repoRoot, mustCanonicalHash(t, tip))
+	assertExpectedSentinel(t, readSentinelFromCommit(t, repoRoot, commit.Hash))
 }
 
 func TestWriteRecordNoWorkingTreeChanges(t *testing.T) {
@@ -1477,8 +1537,8 @@ func TestReadErrorsAreTyped(t *testing.T) {
 	branchMissingRoot := initGitRepo(t)
 	branchMissingCtx := mustDiscoverRepo(t, branchMissingRoot)
 	_, err := internalgit.ReadRecord(branchMissingCtx, "sessions", types.NewSessionID().String())
-	if !errors.Is(err, plumbing.ErrReferenceNotFound) {
-		t.Fatalf("ReadRecord() branch-missing error = %v, want plumbing.ErrReferenceNotFound", err)
+	if !errors.Is(err, internalgit.ErrOpaxBranchNotFound) {
+		t.Fatalf("ReadRecord() branch-missing error = %v, want ErrOpaxBranchNotFound", err)
 	}
 
 	repoRoot := initGitRepo(t)
@@ -1598,12 +1658,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=Opax Test",
-		"GIT_AUTHOR_EMAIL=opax-test@example.com",
-		"GIT_COMMITTER_NAME=Opax Test",
-		"GIT_COMMITTER_EMAIL=opax-test@example.com",
-	)
+	cmd.Env = gitEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s (dir=%s) error = %v\n%s", strings.Join(args, " "), dir, err, output)
@@ -1621,33 +1676,10 @@ func mustDiscoverRepo(t *testing.T, repoRoot string) *internalgit.RepoContext {
 	return ctx
 }
 
-func mustOpenRepo(t *testing.T, repoRoot string) *ggit.Repository {
+func readSentinelFromCommit(t *testing.T, repoRoot, commitHash string) opaxSentinel {
 	t.Helper()
 
-	repo, err := ggit.PlainOpenWithOptions(repoRoot, &ggit.PlainOpenOptions{DetectDotGit: true})
-	if err != nil {
-		t.Fatalf("PlainOpenWithOptions(%q) error = %v", repoRoot, err)
-	}
-	return repo
-}
-
-func readSentinelFromCommit(t *testing.T, commit *object.Commit) opaxSentinel {
-	t.Helper()
-
-	tree, err := commit.Tree()
-	if err != nil {
-		t.Fatalf("Tree(%s) error = %v", commit.Hash, err)
-	}
-
-	file, err := tree.File(opaxSentinelPath)
-	if err != nil {
-		t.Fatalf("File(%q) error = %v", opaxSentinelPath, err)
-	}
-
-	content, err := file.Contents()
-	if err != nil {
-		t.Fatalf("Contents(%q) error = %v", opaxSentinelPath, err)
-	}
+	content := readFileAtCommitPath(t, repoRoot, commitHash, opaxSentinelPath)
 
 	var sentinel opaxSentinel
 	if err := json.Unmarshal([]byte(content), &sentinel); err != nil {
@@ -1669,22 +1701,10 @@ func assertExpectedSentinel(t *testing.T, sentinel opaxSentinel) {
 	}
 }
 
-func readFileAtCommitPath(t *testing.T, commit *object.Commit, recordPath string) string {
+func readFileAtCommitPath(t *testing.T, repoRoot, commitHash, recordPath string) string {
 	t.Helper()
 
-	tree, err := commit.Tree()
-	if err != nil {
-		t.Fatalf("Tree(%s) error = %v", commit.Hash, err)
-	}
-	file, err := tree.File(recordPath)
-	if err != nil {
-		t.Fatalf("File(%q) error = %v", recordPath, err)
-	}
-	content, err := file.Contents()
-	if err != nil {
-		t.Fatalf("Contents(%q) error = %v", recordPath, err)
-	}
-	return content
+	return runGit(t, repoRoot, "show", fmt.Sprintf("%s:%s", commitHash, recordPath))
 }
 
 func expectedRecordRoot(collection, recordID string) string {
@@ -1696,107 +1716,180 @@ func expectedSentinelJSON() string {
 	return `{"branch":"opax/v1","layout_version":1,"created_by":"opax"}`
 }
 
-func writeBlobObject(t *testing.T, repo *ggit.Repository, data []byte) plumbing.Hash {
+func writeBlobObject(t *testing.T, repoRoot string, data []byte) string {
 	t.Helper()
 
-	obj := repo.Storer.NewEncodedObject()
-	obj.SetType(plumbing.BlobObject)
-
-	writer, err := obj.Writer()
-	if err != nil {
-		t.Fatalf("Writer() error = %v", err)
-	}
-	if _, err := writer.Write(data); err != nil {
-		_ = writer.Close()
-		t.Fatalf("Write() error = %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-
-	hash, err := repo.Storer.SetEncodedObject(obj)
-	if err != nil {
-		t.Fatalf("SetEncodedObject() error = %v", err)
-	}
-	return hash
+	return strings.TrimSpace(runGitInput(t, repoRoot, data, "hash-object", "-w", "--stdin"))
 }
 
-func writeTreeObject(t *testing.T, repo *ggit.Repository, entries []object.TreeEntry) plumbing.Hash {
+func writeTreeObject(t *testing.T, repoRoot string, entries []testGitTreeEntry) string {
 	t.Helper()
 
-	sorted := append([]object.TreeEntry(nil), entries...)
-	sort.Sort(object.TreeEntrySorter(sorted))
+	sorted := append([]testGitTreeEntry(nil), entries...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Name < sorted[j].Name
+	})
 
-	obj := repo.Storer.NewEncodedObject()
-	if err := (&object.Tree{Entries: sorted}).Encode(obj); err != nil {
-		t.Fatalf("Tree.Encode() error = %v", err)
+	var input bytes.Buffer
+	for _, entry := range sorted {
+		if entry.Mode == "" || entry.Type == "" || !isCanonicalHash(entry.Hash) {
+			t.Fatalf("invalid tree entry %+v", entry)
+		}
+		fmt.Fprintf(&input, "%s %s %s\t%s", entry.Mode, entry.Type, entry.Hash, entry.Name)
+		input.WriteByte(0)
 	}
 
-	hash, err := repo.Storer.SetEncodedObject(obj)
-	if err != nil {
-		t.Fatalf("SetEncodedObject(tree) error = %v", err)
-	}
-	return hash
+	return strings.TrimSpace(runGitInput(t, repoRoot, input.Bytes(), "mktree", "-z"))
 }
 
-func writeCommitObject(t *testing.T, repo *ggit.Repository, treeHash, parentHash plumbing.Hash, message string) plumbing.Hash {
+func writeCommitObject(t *testing.T, repoRoot, treeHash string, parentHashes []string, message string) string {
 	t.Helper()
 
-	now := time.Now().UTC()
-	commit := &object.Commit{
-		Author: object.Signature{
-			Name:  "Opax",
-			Email: "opax@local",
-			When:  now,
-		},
-		Committer: object.Signature{
-			Name:  "Opax",
-			Email: "opax@local",
-			When:  now,
-		},
-		Message:      message,
-		TreeHash:     treeHash,
-		ParentHashes: []plumbing.Hash{parentHash},
+	args := []string{"commit-tree", treeHash}
+	for _, parentHash := range parentHashes {
+		args = append(args, "-p", parentHash)
+	}
+	args = append(args, "-m", message)
+
+	return strings.TrimSpace(runGit(t, repoRoot, args...))
+}
+
+func readCommitInfo(t *testing.T, repoRoot, commitHash string) testGitCommit {
+	t.Helper()
+
+	format := "%H%x00%T%x00%P%x00%an%x00%ae%x00%cn%x00%ce%x00%B"
+	output := runGit(t, repoRoot, "show", "-s", "--format="+format, commitHash)
+	parts := strings.SplitN(output, "\x00", 8)
+	if len(parts) != 8 {
+		t.Fatalf("git show parse failed for %s: got %d parts", commitHash, len(parts))
 	}
 
-	obj := repo.Storer.NewEncodedObject()
-	if err := commit.Encode(obj); err != nil {
-		t.Fatalf("Commit.Encode() error = %v", err)
+	var parentHashes []string
+	if trimmed := strings.TrimSpace(parts[2]); trimmed != "" {
+		parentHashes = strings.Fields(trimmed)
 	}
 
-	hash, err := repo.Storer.SetEncodedObject(obj)
+	return testGitCommit{
+		Hash:     parts[0],
+		TreeHash: parts[1],
+		Author: testGitSignature{
+			Name:  parts[3],
+			Email: parts[4],
+		},
+		Committer: testGitSignature{
+			Name:  parts[5],
+			Email: parts[6],
+		},
+		ParentHashes: parentHashes,
+		Message:      strings.TrimSuffix(parts[7], "\n"),
+	}
+}
+
+func readRefHash(t *testing.T, repoRoot, refName string) string {
+	t.Helper()
+	return strings.TrimSpace(runGit(t, repoRoot, "rev-parse", "--verify", refName))
+}
+
+func refExists(t *testing.T, repoRoot, refName string) bool {
+	t.Helper()
+
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", refName)
+	cmd.Dir = repoRoot
+	cmd.Env = gitEnv()
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false
+		}
+		t.Fatalf("git show-ref --verify --quiet %s (dir=%s) error = %v", refName, repoRoot, err)
+	}
+	return true
+}
+
+func setHashRef(t *testing.T, repoRoot, refName, hash string) {
+	t.Helper()
+	runGit(t, repoRoot, "update-ref", refName, hash)
+}
+
+func setHashRefCAS(t *testing.T, repoRoot, refName, newHash, oldHash string) {
+	t.Helper()
+	runGit(t, repoRoot, "update-ref", refName, newHash, oldHash)
+}
+
+func setSymbolicRef(t *testing.T, repoRoot, refName, target string) {
+	t.Helper()
+	runGit(t, repoRoot, "symbolic-ref", refName, target)
+}
+
+func readTreeEntries(t *testing.T, repoRoot, treeHash string) []testGitTreeEntry {
+	t.Helper()
+
+	output := runGit(t, repoRoot, "ls-tree", "-z", treeHash)
+	if output == "" {
+		return nil
+	}
+
+	records := strings.Split(output, "\x00")
+	entries := make([]testGitTreeEntry, 0, len(records))
+	for _, record := range records {
+		if record == "" {
+			continue
+		}
+		tabIndex := strings.IndexByte(record, '\t')
+		if tabIndex == -1 {
+			t.Fatalf("git ls-tree record missing tab: %q", record)
+		}
+		header := strings.Fields(record[:tabIndex])
+		if len(header) != 3 {
+			t.Fatalf("git ls-tree record malformed: %q", record)
+		}
+		entries = append(entries, testGitTreeEntry{
+			Mode: header[0],
+			Type: header[1],
+			Hash: header[2],
+			Name: record[tabIndex+1:],
+		})
+	}
+	return entries
+}
+
+func runGitInput(t *testing.T, dir string, input []byte, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitEnv()
+	cmd.Stdin = bytes.NewReader(input)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("SetEncodedObject(commit) error = %v", err)
+		t.Fatalf("git %s (dir=%s) error = %v\n%s", strings.Join(args, " "), dir, err, output)
 	}
-	return hash
+	return string(output)
+}
+
+func gitEnv() []string {
+	return append(os.Environ(),
+		"GIT_AUTHOR_NAME=Opax Test",
+		"GIT_AUTHOR_EMAIL=opax-test@example.com",
+		"GIT_COMMITTER_NAME=Opax Test",
+		"GIT_COMMITTER_EMAIL=opax-test@example.com",
+	)
 }
 
 func injectMalformedSessionsCollection(t *testing.T, repoRoot string) {
 	t.Helper()
 
-	repo := mustOpenRepo(t, repoRoot)
-	ref, err := repo.Reference(plumbing.ReferenceName(opaxBranchRef), true)
-	if err != nil {
-		t.Fatalf("Reference(%q) error = %v", opaxBranchRef, err)
-	}
-
-	commit, err := repo.CommitObject(ref.Hash())
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", ref.Hash(), err)
-	}
-	rootTree, err := commit.Tree()
-	if err != nil {
-		t.Fatalf("Tree(%s) error = %v", commit.Hash, err)
-	}
-
-	entries := append([]object.TreeEntry(nil), rootTree.Entries...)
-	badHash := writeBlobObject(t, repo, []byte("malformed sessions collection"))
+	refHash := readRefHash(t, repoRoot, opaxBranchRef)
+	commit := readCommitInfo(t, repoRoot, refHash)
+	entries := readTreeEntries(t, repoRoot, commit.TreeHash)
+	badHash := writeBlobObject(t, repoRoot, []byte("malformed sessions collection"))
 	replaced := false
 	for i := range entries {
 		if entries[i].Name == "sessions" {
-			entries[i] = object.TreeEntry{
+			entries[i] = testGitTreeEntry{
 				Name: "sessions",
-				Mode: filemode.Regular,
+				Mode: "100644",
+				Type: "blob",
 				Hash: badHash,
 			}
 			replaced = true
@@ -1804,19 +1897,17 @@ func injectMalformedSessionsCollection(t *testing.T, repoRoot string) {
 		}
 	}
 	if !replaced {
-		entries = append(entries, object.TreeEntry{
+		entries = append(entries, testGitTreeEntry{
 			Name: "sessions",
-			Mode: filemode.Regular,
+			Mode: "100644",
+			Type: "blob",
 			Hash: badHash,
 		})
 	}
 
-	treeHash := writeTreeObject(t, repo, entries)
-	commitHash := writeCommitObject(t, repo, treeHash, ref.Hash(), "opax: malformed sessions collection")
-	newRef := plumbing.NewHashReference(plumbing.ReferenceName(opaxBranchRef), commitHash)
-	if err := repo.Storer.CheckAndSetReference(newRef, ref); err != nil {
-		t.Fatalf("CheckAndSetReference() error = %v", err)
-	}
+	treeHash := writeTreeObject(t, repoRoot, entries)
+	commitHash := writeCommitObject(t, repoRoot, treeHash, []string{refHash}, "opax: malformed sessions collection")
+	setHashRefCAS(t, repoRoot, opaxBranchRef, commitHash, refHash)
 }
 
 func findSessionIDInShard(t *testing.T, shard, exclude string) string {

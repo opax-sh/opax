@@ -6,23 +6,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-
-	"github.com/go-git/go-git/v5/plumbing"
 )
 
 func TestUpdateRefCASClassifiesConflictFromPostConditionProbe(t *testing.T) {
 	backend := newRefCASTestBackend(t)
 
-	expected := plumbing.NewHash("1111111111111111111111111111111111111111")
-	newHash := plumbing.NewHash("2222222222222222222222222222222222222222")
-	liveHash := plumbing.NewHash("3333333333333333333333333333333333333333")
+	expected := gitHash("1111111111111111111111111111111111111111")
+	newHash := gitHash("2222222222222222222222222222222222222222")
+	liveHash := gitHash("3333333333333333333333333333333333333333")
 
 	t.Setenv("UPDATE_REF_STDERR", "fatal: update-ref failed")
 	t.Setenv("REF_PRESENT", "1")
 	t.Setenv("REF_HASH", liveHash.String())
 	t.Setenv("FOREACH_REF_FAIL", "0")
 
-	err := backend.updateRefCAS(plumbing.ReferenceName(opaxBranchRef), newHash, &expected)
+	err := backend.updateRefCAS(opaxBranchRef, newHash, &expected)
 	if !errors.Is(err, errReferenceChanged) {
 		t.Fatalf("updateRefCAS() error = %v, want errReferenceChanged", err)
 	}
@@ -34,15 +32,15 @@ func TestUpdateRefCASClassifiesConflictFromPostConditionProbe(t *testing.T) {
 func TestUpdateRefCASClassifiesUnknownWhenRefUnchanged(t *testing.T) {
 	backend := newRefCASTestBackend(t)
 
-	expected := plumbing.NewHash("1111111111111111111111111111111111111111")
-	newHash := plumbing.NewHash("2222222222222222222222222222222222222222")
+	expected := gitHash("1111111111111111111111111111111111111111")
+	newHash := gitHash("2222222222222222222222222222222222222222")
 
 	t.Setenv("UPDATE_REF_STDERR", "fatal: update-ref failed")
 	t.Setenv("REF_PRESENT", "1")
 	t.Setenv("REF_HASH", expected.String())
 	t.Setenv("FOREACH_REF_FAIL", "0")
 
-	err := backend.updateRefCAS(plumbing.ReferenceName(opaxBranchRef), newHash, &expected)
+	err := backend.updateRefCAS(opaxBranchRef, newHash, &expected)
 	if !errors.Is(err, errReferenceCASUnknown) {
 		t.Fatalf("updateRefCAS() error = %v, want errReferenceCASUnknown", err)
 	}
@@ -54,15 +52,15 @@ func TestUpdateRefCASClassifiesUnknownWhenRefUnchanged(t *testing.T) {
 func TestUpdateRefCASClassifiesAppliedWhenLiveRefMatchesNewHash(t *testing.T) {
 	backend := newRefCASTestBackend(t)
 
-	expected := plumbing.NewHash("1111111111111111111111111111111111111111")
-	newHash := plumbing.NewHash("2222222222222222222222222222222222222222")
+	expected := gitHash("1111111111111111111111111111111111111111")
+	newHash := gitHash("2222222222222222222222222222222222222222")
 
 	t.Setenv("UPDATE_REF_STDERR", "fatal: update-ref failed")
 	t.Setenv("REF_PRESENT", "1")
 	t.Setenv("REF_HASH", newHash.String())
 	t.Setenv("FOREACH_REF_FAIL", "0")
 
-	if err := backend.updateRefCAS(plumbing.ReferenceName(opaxBranchRef), newHash, &expected); err != nil {
+	if err := backend.updateRefCAS(opaxBranchRef, newHash, &expected); err != nil {
 		t.Fatalf("updateRefCAS() error = %v, want nil", err)
 	}
 }
@@ -70,14 +68,14 @@ func TestUpdateRefCASClassifiesAppliedWhenLiveRefMatchesNewHash(t *testing.T) {
 func TestUpdateRefCASFallsBackToStderrConflictWhenProbeFails(t *testing.T) {
 	backend := newRefCASTestBackend(t)
 
-	expected := plumbing.NewHash("1111111111111111111111111111111111111111")
-	newHash := plumbing.NewHash("2222222222222222222222222222222222222222")
+	expected := gitHash("1111111111111111111111111111111111111111")
+	newHash := gitHash("2222222222222222222222222222222222222222")
 
 	t.Setenv("UPDATE_REF_STDERR", "fatal: cannot lock ref 'refs/heads/opax/v1': is at 3333333 but expected 1111111")
 	t.Setenv("FOREACH_REF_FAIL", "1")
 	t.Setenv("FOREACH_REF_STDERR", "fatal: probe failed")
 
-	err := backend.updateRefCAS(plumbing.ReferenceName(opaxBranchRef), newHash, &expected)
+	err := backend.updateRefCAS(opaxBranchRef, newHash, &expected)
 	if !errors.Is(err, errReferenceChanged) {
 		t.Fatalf("updateRefCAS() error = %v, want errReferenceChanged", err)
 	}

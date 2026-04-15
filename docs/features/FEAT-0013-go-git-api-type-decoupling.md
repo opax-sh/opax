@@ -1,8 +1,8 @@
 # FEAT-0013 - go-git API and Type Decoupling
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** Blocked
-**Last synced:** 2026-04-01
+**Status:** In Progress
+**Last synced:** 2026-04-15
 **Dependencies:** FEAT-0012 (Native backend adapter migration)
 **Dependents:** Future `internal/git` callers, module dependency cleanup
 
@@ -72,5 +72,5 @@ Until that follow-up lands, Opax is native Git in production behavior but not fu
 
 ## Notes
 
-- FEAT-0013 is blocked on FEAT-0012 closeout and exists to prevent FEAT-0012 from over-claiming full `go-git` removal.
+- FEAT-0013 follows FEAT-0012 closeout and owns exported contract decoupling first, then remaining internal cleanup and module removal.
 - This feature is intentionally staged so contract churn happens before module cleanup.

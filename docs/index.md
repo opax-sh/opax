@@ -31,13 +31,13 @@ Use it as the one-page status rollup across all epics and features.
 | FEAT-0010 | EPIC-0001 | Completed | [features/FEAT-0010-commit-trailer-support.md](features/FEAT-0010-commit-trailer-support.md)     |
 | FEAT-0011 | EPIC-0001 | Completed | [features/FEAT-0011-refspec-configuration.md](features/FEAT-0011-refspec-configuration.md)       |
 | FEAT-0012 | EPIC-0001 | Completed | [features/FEAT-0012-git-boundary-compatibility-hardening.md](features/FEAT-0012-git-boundary-compatibility-hardening.md) |
-| FEAT-0013 | EPIC-0001 | Blocked | [features/FEAT-0013-go-git-api-type-decoupling.md](features/FEAT-0013-go-git-api-type-decoupling.md) |
+| FEAT-0013 | EPIC-0001 | In Progress | [features/FEAT-0013-go-git-api-type-decoupling.md](features/FEAT-0013-go-git-api-type-decoupling.md) |
 
 ### Native Backend Status
 
 - FEAT-0012 is completed: checkpoints A-F landed, native Git is the production transport for `internal/git`, and the repo-local proof gates are green.
 - FEAT-0012 intentionally leaves the frozen `go-git/plumbing` compatibility surface in place; full `go-git` type/module removal moves to FEAT-0013.
-- FEAT-0013 is blocked as the follow-up that owns exported contract decoupling first, then remaining internal cleanup and module removal.
+- FEAT-0013 is in progress and owns exported contract decoupling first, then remaining internal cleanup and module removal.
 
 
 ## Update Rules

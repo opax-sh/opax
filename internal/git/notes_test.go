@@ -9,10 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	ggit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/filemode"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	internalgit "github.com/opax-sh/opax/internal/git"
 	"github.com/opax-sh/opax/internal/types"
 )
@@ -33,18 +29,10 @@ func TestWriteNoteSessionsNamespace(t *testing.T) {
 		t.Fatalf("WriteNote() error = %v", err)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	ref, err := repo.Reference(plumbing.ReferenceName(notesRefPrefix+"sessions"), true)
-	if err != nil {
-		t.Fatalf("Reference(%q) error = %v", notesRefPrefix+"sessions", err)
-	}
-	commit, err := repo.CommitObject(ref.Hash())
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", ref.Hash(), err)
-	}
+	refHash := readRefHash(t, repoRoot, notesRefPrefix+"sessions")
 
 	path := expectedNoteFanoutPath(commitHash)
-	if got := readFileAtCommitPath(t, commit, path); got != `{"session_id":"ses_123","version":1}` {
+	if got := readFileAtCommitPath(t, repoRoot, refHash, path); got != `{"session_id":"ses_123","version":1}` {
 		t.Fatalf("stored note payload = %q, want merged payload", got)
 	}
 }
@@ -63,9 +51,8 @@ func TestWriteNoteExtensionNamespace(t *testing.T) {
 		t.Fatalf("WriteNote() error = %v", err)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	if _, err := repo.Reference(plumbing.ReferenceName(notesRefPrefix+"ext-reviews"), true); err != nil {
-		t.Fatalf("Reference(%q) error = %v", notesRefPrefix+"ext-reviews", err)
+	if !refExists(t, repoRoot, notesRefPrefix+"ext-reviews") {
+		t.Fatalf("ref %q missing", notesRefPrefix+"ext-reviews")
 	}
 }
 
@@ -151,9 +138,8 @@ func TestWriteNoteBootstrapsRef(t *testing.T) {
 		t.Fatalf("WriteNote() error = %v", err)
 	}
 
-	repo := mustOpenRepo(t, repoRoot)
-	if _, err := repo.Reference(plumbing.ReferenceName(notesRefPrefix+"sessions"), true); err != nil {
-		t.Fatalf("Reference(%q) error = %v", notesRefPrefix+"sessions", err)
+	if !refExists(t, repoRoot, notesRefPrefix+"sessions") {
+		t.Fatalf("ref %q missing", notesRefPrefix+"sessions")
 	}
 }
 
@@ -378,20 +364,17 @@ func TestListNotesReadsFanoutAndFlatLayouts(t *testing.T) {
 func TestListNotesRejectsPaddedFlatHashEntry(t *testing.T) {
 	repoRoot, commitHash := initGitRepoWithCommit(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
-	repo := mustOpenRepo(t, repoRoot)
 
-	blobHash := writeBlobObject(t, repo, []byte(`{"version":1,"reviewer":"qa"}`))
-	rootTreeHash := writeTreeObject(t, repo, []object.TreeEntry{{
+	blobHash := writeBlobObject(t, repoRoot, []byte(`{"version":1,"reviewer":"qa"}`))
+	rootTreeHash := writeTreeObject(t, repoRoot, []testGitTreeEntry{{
 		Name: " " + commitHash + " ",
-		Mode: filemode.Regular,
+		Mode: "100644",
+		Type: "blob",
 		Hash: blobHash,
 	}})
 
-	targetCommit := mustCommitObject(t, repo, plumbing.NewHash(commitHash))
-	noteCommitHash := writeCommitObject(t, repo, rootTreeHash, targetCommit.Hash, "opax: malformed padded flat note")
-	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(notesRefPrefix+"ext-reviews"), noteCommitHash)); err != nil {
-		t.Fatalf("SetReference(%q) error = %v", notesRefPrefix+"ext-reviews", err)
-	}
+	noteCommitHash := writeCommitObject(t, repoRoot, rootTreeHash, []string{commitHash}, "opax: malformed padded flat note")
+	setHashRef(t, repoRoot, notesRefPrefix+"ext-reviews", noteCommitHash)
 
 	_, err := internalgit.ListNotes(ctx, "ext-reviews")
 	if !errors.Is(err, internalgit.ErrMalformedNote) {
@@ -426,9 +409,8 @@ func TestListNoteNamespaces(t *testing.T) {
 func TestReadNoteMalformedPayload(t *testing.T) {
 	repoRoot, commitHash := initGitRepoWithCommit(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
-	repo := mustOpenRepo(t, repoRoot)
 
-	installNoteRefWithBlob(t, repo, "ext-reviews", commitHash, []byte("not-json"))
+	installNoteRefWithBlob(t, repoRoot, "ext-reviews", commitHash, []byte("not-json"))
 
 	_, err := internalgit.ReadNote(ctx, "ext-reviews", commitHash)
 	if !errors.Is(err, internalgit.ErrMalformedNote) {
@@ -439,13 +421,8 @@ func TestReadNoteMalformedPayload(t *testing.T) {
 func TestListNoteNamespacesRejectsNestedRef(t *testing.T) {
 	repoRoot, commitHash := initGitRepoWithCommit(t)
 	ctx := mustDiscoverRepo(t, repoRoot)
-	repo := mustOpenRepo(t, repoRoot)
 
-	commit := mustCommitObject(t, repo, plumbing.NewHash(commitHash))
-	ref := plumbing.NewHashReference(plumbing.ReferenceName("refs/notes/opax/ext/reviews"), commit.Hash)
-	if err := repo.Storer.SetReference(ref); err != nil {
-		t.Fatalf("SetReference(%q) error = %v", ref.Name(), err)
-	}
+	setHashRef(t, repoRoot, "refs/notes/opax/ext/reviews", commitHash)
 
 	_, err := internalgit.ListNoteNamespaces(ctx)
 	if !errors.Is(err, internalgit.ErrMalformedNote) {
@@ -485,38 +462,26 @@ func expectedNoteFanoutPath(commitHash string) string {
 	return filepath.ToSlash(filepath.Join(commitHash[:2], commitHash[2:]))
 }
 
-func installNoteRefWithBlob(t *testing.T, repo *ggit.Repository, namespace, commitHash string, blob []byte) {
+func installNoteRefWithBlob(t *testing.T, repoRoot, namespace, commitHash string, blob []byte) {
 	t.Helper()
 
-	blobHash := writeBlobObject(t, repo, blob)
-	targetHash := plumbing.NewHash(commitHash)
-	path := expectedNoteFanoutPath(targetHash.String())
+	blobHash := writeBlobObject(t, repoRoot, blob)
+	path := expectedNoteFanoutPath(commitHash)
 	segments := strings.Split(path, "/")
 
-	shardTreeHash := writeTreeObject(t, repo, []object.TreeEntry{{
+	shardTreeHash := writeTreeObject(t, repoRoot, []testGitTreeEntry{{
 		Name: segments[1],
-		Mode: filemode.Regular,
+		Mode: "100644",
+		Type: "blob",
 		Hash: blobHash,
 	}})
-	rootTreeHash := writeTreeObject(t, repo, []object.TreeEntry{{
+	rootTreeHash := writeTreeObject(t, repoRoot, []testGitTreeEntry{{
 		Name: segments[0],
-		Mode: filemode.Dir,
+		Mode: "040000",
+		Type: "tree",
 		Hash: shardTreeHash,
 	}})
 
-	targetCommit := mustCommitObject(t, repo, targetHash)
-	noteCommitHash := writeCommitObject(t, repo, rootTreeHash, targetCommit.Hash, "opax: malformed note")
-	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(notesRefPrefix+namespace), noteCommitHash)); err != nil {
-		t.Fatalf("SetReference(%q) error = %v", notesRefPrefix+namespace, err)
-	}
-}
-
-func mustCommitObject(t *testing.T, repo *ggit.Repository, hash plumbing.Hash) *object.Commit {
-	t.Helper()
-
-	commit, err := repo.CommitObject(hash)
-	if err != nil {
-		t.Fatalf("CommitObject(%s) error = %v", hash, err)
-	}
-	return commit
+	noteCommitHash := writeCommitObject(t, repoRoot, rootTreeHash, []string{commitHash}, "opax: malformed note")
+	setHashRef(t, repoRoot, notesRefPrefix+namespace, noteCommitHash)
 }

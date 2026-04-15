@@ -279,11 +279,11 @@ Verification commands:
 
 ## Follow-up Feature Commitment (FEAT-0013)
 
-- Track follow-up feature [`FEAT-0013 - go-git API and type decoupling`](FEAT-0013-go-git-api-type-decoupling.md) in progress status.
+- Track follow-up feature [`FEAT-0013 - go-git API and type decoupling`](FEAT-0013-go-git-api-type-decoupling.md) as completed.
 - FEAT-0013 starts only after FEAT-0012 closeout lands.
 - FEAT-0013 executes in two tracked stages:
   - Stage 1: repo-private `internal/git` API cut to canonical string hash contracts plus removal of `go-git/plumbing` from all non-test `internal/git` files.
   - Stage 2: test rewrite, native Git smoke replacement, and `go.mod`/`go.sum` cleanup after Stage 1 is stable.
-- FEAT-0013 tracking checklist (initial):
-  - [ ] Stage 1 merges the public string contract, removes `WriteResult.CommitHash`, replaces `plumbing.ErrReferenceNotFound` expectations with `ErrOpaxBranchNotFound`, and leaves no non-test `internal/git` import of `go-git`.
-  - [ ] Stage 2 removes remaining test and smoke-test `go-git` usage, replaces it with native Git helpers/runtime smoke coverage, and deletes the module dependency without regressing Stage 1 API behavior.
+- FEAT-0013 tracking checklist (completed):
+  - [x] Stage 1 merged the public string contract, removed `WriteResult.CommitHash`, replaced `plumbing.ErrReferenceNotFound` expectations with `ErrOpaxBranchNotFound`, and left no non-test `internal/git` import of `go-git`.
+  - [x] Stage 2 removed remaining test and smoke-test `go-git` usage, replaced it with native Git helpers/runtime smoke coverage, and deleted the module dependency without regressing Stage 1 API behavior.

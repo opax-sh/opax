@@ -8,16 +8,16 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	gogit "github.com/go-git/go-git/v5"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/oklog/ulid/v2"
-	_ "modernc.org/sqlite"
 	"gopkg.in/yaml.v3"
+	_ "modernc.org/sqlite"
 )
 
 // findModuleRoot walks up from the current working directory until it finds a
@@ -40,28 +40,23 @@ func findModuleRoot(t *testing.T) string {
 	}
 }
 
-// TestSmokeGoGit opens this repository via git.PlainOpen and reads HEAD,
-// verifying that a valid commit hash is returned.
-func TestSmokeGoGit(t *testing.T) {
-	repo, err := gogit.PlainOpen(findModuleRoot(t))
+// TestSmokeNativeGit resolves HEAD through the Git binary, verifying that the
+// runtime dependency Opax relies on is available and returns a canonical hash.
+func TestSmokeNativeGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = findModuleRoot(t)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("git: PlainOpen failed: %v", err)
+		t.Fatalf("git: rev-parse HEAD failed: %v\n%s", err, output)
 	}
 
-	ref, err := repo.Head()
-	if err != nil {
-		t.Fatalf("git: Head failed: %v", err)
-	}
-
-	hash := ref.Hash()
-	if hash.IsZero() {
-		t.Fatal("git: HEAD hash is zero")
-	}
-
-	// A valid SHA-1 hex string is 40 characters.
-	hashStr := hash.String()
-	if len(hashStr) != 40 {
-		t.Fatalf("git: expected 40-char hash, got %q (len %d)", hashStr, len(hashStr))
+	hash := strings.TrimSpace(string(output))
+	if len(hash) != 40 {
+		t.Fatalf("git: expected 40-char hash, got %q (len %d)", hash, len(hash))
 	}
 }
 

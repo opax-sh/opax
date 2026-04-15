@@ -1,7 +1,7 @@
 # FEAT-0013 - go-git API and Type Decoupling
 
 **Epic:** [EPIC-0001 - Git Plumbing Layer](../epics/EPIC-0001-git-plumbing-layer.md)
-**Status:** In Progress
+**Status:** Completed
 **Last synced:** 2026-04-15
 **Dependencies:** FEAT-0012 (Native backend adapter migration)
 **Dependents:** Future `internal/git` callers, module dependency cleanup
@@ -70,14 +70,14 @@ Until that follow-up lands, Opax is native Git in production behavior but not fu
 
 ## Acceptance Criteria
 
-- [ ] Stage 1 lands as a separately mergeable checkpoint with synced docs and green proof gates.
-- [ ] Stage 1 removes every exported `go-git/plumbing` type from `internal/git` and leaves no exported hash type behind.
-- [ ] Stage 1 updates the public `internal/git` boundary to canonical lowercase 40-character strings, removes `WriteResult.CommitHash`, and standardizes missing-branch behavior on `ErrOpaxBranchNotFound`.
-- [ ] Stage 1 removes all non-test `go-git` imports from `internal/git`.
-- [ ] Stage 1 updates tests away from `plumbing.ErrReferenceNotFound` assertions and stale `WriteResult.CommitHash` expectations.
-- [ ] Stage 2 lands as a separately mergeable checkpoint with synced docs and green proof gates.
-- [ ] Stage 2 removes remaining `go-git` usage from tests and smoke coverage, replaces it with native Git helpers/runtime smoke coverage, and deletes the module dependency from `go.mod` and `go.sum`.
-- [ ] `go test ./internal/git/...` and `make test` stay green throughout both stages.
+- [x] Stage 1 lands as a separately mergeable checkpoint with synced docs and green proof gates.
+- [x] Stage 1 removes every exported `go-git/plumbing` type from `internal/git` and leaves no exported hash type behind.
+- [x] Stage 1 updates the public `internal/git` boundary to canonical lowercase 40-character strings, removes `WriteResult.CommitHash`, and standardizes missing-branch behavior on `ErrOpaxBranchNotFound`.
+- [x] Stage 1 removes all non-test `go-git` imports from `internal/git`.
+- [x] Stage 1 updates tests away from `plumbing.ErrReferenceNotFound` assertions and stale `WriteResult.CommitHash` expectations.
+- [x] Stage 2 lands as a separately mergeable checkpoint with synced docs and green proof gates.
+- [x] Stage 2 removes remaining `go-git` usage from tests and smoke coverage, replaces it with native Git helpers/runtime smoke coverage, and deletes the module dependency from `go.mod` and `go.sum`.
+- [x] `go test ./internal/git/...` and `make test` stay green throughout both stages.
 
 ---
 
@@ -112,6 +112,6 @@ Until that follow-up lands, Opax is native Git in production behavior but not fu
 
 ## Notes
 
-- FEAT-0013 follows FEAT-0012 closeout and owns the repo-private `internal/git` API break plus full production decoupling before test/module cleanup.
-- Stage 1 and Stage 2 are both intended to be independently mergeable.
+- FEAT-0013 follows FEAT-0012 closeout and completes the repo-private `internal/git` API break plus full production decoupling.
+- Stage 1 and Stage 2 both landed as independently mergeable checkpoints.
 - `ListNotes` remains unchanged at the public contract level.

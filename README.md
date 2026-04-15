@@ -65,7 +65,7 @@ Current status as of April 2, 2026:
 | `EPIC-0001` Git Plumbing Layer | In Progress | The repository-native data and sync boundary is being hardened. |
 | `FEAT-0012` Native Git hardening | Completed | Native Git is now the production transport for `internal/git`, which de-risks real repository semantics. |
 | `FEAT-0011` Refspec configuration | Backlog | Explicit Opax sync still needs the safe default-sync contract for remote configuration. |
-| `FEAT-0013` API/type decoupling | Blocked | Full removal of the frozen `go-git` compatibility surface is intentionally deferred behind a cleaner contract migration. |
+| `FEAT-0013` API/type decoupling | Completed | The frozen `go-git` compatibility surface is removed from production code, tests, smoke coverage, and the module graph. |
 
 The shape of the roadmap is deliberate.
 
